@@ -1,15 +1,16 @@
 import 'package:flutter/material.dart';
-import 'package:latlong2/latlong.dart';
 import '../services/api_service.dart';
+import '../services/location_service.dart';
+import '../models/alert.dart';
 
 class PanicButton extends StatefulWidget {
   final String touristId;
-  final LatLng currentLocation;
+  final VoidCallback? onPanicSent;
 
   const PanicButton({
     super.key,
     required this.touristId,
-    required this.currentLocation,
+    this.onPanicSent,
   });
 
   @override
@@ -19,8 +20,10 @@ class PanicButton extends StatefulWidget {
 class _PanicButtonState extends State<PanicButton>
     with SingleTickerProviderStateMixin {
   final ApiService _apiService = ApiService();
-  bool _isPressed = false;
-  bool _isSending = false;
+  final LocationService _locationService = LocationService();
+  
+  bool _isLoading = false;
+  bool _isPanicActive = false;
   late AnimationController _animationController;
   late Animation<double> _pulseAnimation;
 
@@ -38,9 +41,6 @@ class _PanicButtonState extends State<PanicButton>
       parent: _animationController,
       curve: Curves.easeInOut,
     ));
-    
-    // Start pulsing animation
-    _animationController.repeat(reverse: true);
   }
 
   @override
@@ -49,186 +49,83 @@ class _PanicButtonState extends State<PanicButton>
     super.dispose();
   }
 
-  Future<void> _sendPanicAlert() async {
-    if (_isSending) return;
+  Future<void> _handlePanicPress() async {
+    if (_isLoading) return;
+
+    // Show confirmation dialog
+    final confirmed = await _showConfirmationDialog();
+    if (!confirmed) return;
 
     setState(() {
-      _isSending = true;
+      _isLoading = true;
+      _isPanicActive = true;
     });
 
+    // Start pulsing animation
+    _animationController.repeat(reverse: true);
+
     try {
-      await _apiService.sendPanicAlert(
-        widget.touristId,
-        widget.currentLocation.latitude,
-        widget.currentLocation.longitude,
+      // Get current location
+      final position = await _locationService.getCurrentLocation();
+      if (position == null) {
+        throw Exception('Unable to get current location');
+      }
+
+      // Create panic alert
+      final panicAlert = PanicAlert(
+        touristId: widget.touristId,
+        latitude: position.latitude,
+        longitude: position.longitude,
+        timestamp: DateTime.now(),
+        message: 'Emergency assistance requested',
       );
 
-      if (mounted) {
-        // Show success message
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Row(
-              children: [
-                Icon(Icons.check_circle, color: Colors.white),
-                SizedBox(width: 8),
-                Text('Emergency alert sent successfully!'),
-              ],
-            ),
-            backgroundColor: Colors.green,
-            duration: Duration(seconds: 3),
-          ),
-        );
+      // Send panic alert to backend
+      final response = await _apiService.sendPanicAlert(panicAlert);
 
-        // Show detailed alert dialog
-        _showPanicAlertDialog();
+      if (response['success'] == true) {
+        _showSuccessDialog(response['message'] ?? 'Panic alert sent successfully!');
+        widget.onPanicSent?.call();
+      } else {
+        throw Exception(response['message'] ?? 'Failed to send panic alert');
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Row(
-              children: [
-                const Icon(Icons.error, color: Colors.white),
-                const SizedBox(width: 8),
-                Expanded(child: Text('Failed to send emergency alert: ${e.toString()}')),
-              ],
-            ),
-            backgroundColor: Colors.red,
-            duration: const Duration(seconds: 5),
-          ),
-        );
-      }
+      _showErrorDialog('Failed to send panic alert: $e');
+      setState(() {
+        _isPanicActive = false;
+      });
+      _animationController.stop();
     } finally {
       setState(() {
-        _isSending = false;
-        _isPressed = false;
+        _isLoading = false;
       });
     }
   }
 
-  void _showPanicAlertDialog() {
-    showDialog(
+  Future<bool> _showConfirmationDialog() async {
+    return await showDialog<bool>(
       context: context,
       barrierDismissible: false,
       builder: (BuildContext context) {
         return AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
           title: const Row(
             children: [
-              Icon(Icons.emergency, color: Colors.red, size: 32),
-              SizedBox(width: 12),
-              Text(
-                'Emergency Alert Sent',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  color: Colors.red,
-                ),
-              ),
-            ],
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Your emergency alert has been sent to the authorities with your current location.',
-                style: TextStyle(fontSize: 16),
-              ),
-              const SizedBox(height: 16),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.grey[100],
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Location sent:',
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        color: Colors.grey,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Lat: ${widget.currentLocation.latitude.toStringAsFixed(6)}',
-                      style: const TextStyle(fontSize: 14),
-                    ),
-                    Text(
-                      'Lng: ${widget.currentLocation.longitude.toStringAsFixed(6)}',
-                      style: const TextStyle(fontSize: 14),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Time: ${DateTime.now().toString().substring(0, 19)}',
-                      style: const TextStyle(fontSize: 14),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
-              const Text(
-                'Help is on the way. Stay calm and stay in a safe location if possible.',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontStyle: FontStyle.italic,
-                  color: Colors.grey,
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              style: TextButton.styleFrom(
-                foregroundColor: Colors.red,
-              ),
-              child: const Text('OK'),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  void _showConfirmationDialog() {
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-          title: const Row(
-            children: [
-              Icon(Icons.warning, color: Colors.orange, size: 32),
-              SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  'Send Emergency Alert?',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-              ),
+              Icon(Icons.warning, color: Colors.red, size: 28),
+              SizedBox(width: 8),
+              Text('Emergency Alert'),
             ],
           ),
           content: const Text(
-            'This will send your current location to emergency services. Only use in case of real emergency.',
+            'Are you sure you want to send a panic alert? This will notify emergency services and send your current location.',
             style: TextStyle(fontSize: 16),
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.of(context).pop(),
+              onPressed: () => Navigator.of(context).pop(false),
               child: const Text('Cancel'),
             ),
             ElevatedButton(
-              onPressed: () {
-                Navigator.of(context).pop();
-                _sendPanicAlert();
-              },
+              onPressed: () => Navigator.of(context).pop(true),
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.red,
                 foregroundColor: Colors.white,
@@ -238,7 +135,70 @@ class _PanicButtonState extends State<PanicButton>
           ],
         );
       },
+    ) ?? false;
+  }
+
+  void _showSuccessDialog(String message) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.check_circle, color: Colors.green, size: 28),
+              SizedBox(width: 8),
+              Text('Alert Sent'),
+            ],
+          ),
+          content: Text(message),
+          actions: [
+            ElevatedButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                _resetPanicButton();
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.green,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('OK'),
+            ),
+          ],
+        );
+      },
     );
+  }
+
+  void _showErrorDialog(String error) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.error, color: Colors.red, size: 28),
+              SizedBox(width: 8),
+              Text('Error'),
+            ],
+          ),
+          content: Text(error),
+          actions: [
+            ElevatedButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('OK'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _resetPanicButton() {
+    setState(() {
+      _isPanicActive = false;
+    });
+    _animationController.stop();
+    _animationController.reset();
   }
 
   @override
@@ -247,51 +207,62 @@ class _PanicButtonState extends State<PanicButton>
       animation: _pulseAnimation,
       builder: (context, child) {
         return Transform.scale(
-          scale: _pulseAnimation.value,
-          child: GestureDetector(
-            onTapDown: (_) {
-              setState(() {
-                _isPressed = true;
-              });
-            },
-            onTapUp: (_) {
-              setState(() {
-                _isPressed = false;
-              });
-              _showConfirmationDialog();
-            },
-            onTapCancel: () {
-              setState(() {
-                _isPressed = false;
-              });
-            },
-            child: Container(
-              width: 80,
-              height: 80,
-              decoration: BoxDecoration(
-                color: _isPressed ? Colors.red[800] : Colors.red,
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.red.withOpacity(0.4),
-                    blurRadius: 20,
-                    offset: const Offset(0, 8),
+          scale: _isPanicActive ? _pulseAnimation.value : 1.0,
+          child: Container(
+            width: 80,
+            height: 80,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: _isPanicActive ? Colors.red.shade700 : Colors.red,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.red.withOpacity(0.4),
+                  blurRadius: _isPanicActive ? 20 : 10,
+                  spreadRadius: _isPanicActive ? 5 : 2,
+                ),
+              ],
+            ),
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: _isLoading ? null : _handlePanicPress,
+                borderRadius: BorderRadius.circular(40),
+                child: Container(
+                  decoration: const BoxDecoration(
+                    shape: BoxShape.circle,
                   ),
-                ],
+                  child: Center(
+                    child: _isLoading
+                        ? const SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: CircularProgressIndicator(
+                              color: Colors.white,
+                              strokeWidth: 2,
+                            ),
+                          )
+                        : Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                _isPanicActive ? Icons.emergency : Icons.warning,
+                                color: Colors.white,
+                                size: 28,
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                _isPanicActive ? 'ACTIVE' : 'SOS',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                  ),
+                ),
               ),
-              child: _isSending
-                  ? const Padding(
-                      padding: EdgeInsets.all(20),
-                      child: CircularProgressIndicator(
-                        color: Colors.white,
-                        strokeWidth: 3,
-                      ),
-                    )
-                  : const Icon(
-                      Icons.emergency,
-                      color: Colors.white,
-                      size: 40,
-                    ),
             ),
           ),
         );

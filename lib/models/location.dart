@@ -1,38 +1,52 @@
 import 'package:latlong2/latlong.dart';
 
 class LocationData {
+  final String touristId;
   final double latitude;
   final double longitude;
   final DateTime timestamp;
   final double? accuracy;
+  final double? altitude;
+  final double? speed;
+  final double? heading;
 
   LocationData({
+    required this.touristId,
     required this.latitude,
     required this.longitude,
     required this.timestamp,
     this.accuracy,
+    this.altitude,
+    this.speed,
+    this.heading,
   });
 
   LatLng get latLng => LatLng(latitude, longitude);
 
+  factory LocationData.fromJson(Map<String, dynamic> json) {
+    return LocationData(
+      touristId: json['tourist_id'],
+      latitude: json['lat'].toDouble(),
+      longitude: json['lon'].toDouble(),
+      timestamp: DateTime.parse(json['timestamp']),
+      accuracy: json['accuracy']?.toDouble(),
+      altitude: json['altitude']?.toDouble(),
+      speed: json['speed']?.toDouble(),
+      heading: json['heading']?.toDouble(),
+    );
+  }
+
   Map<String, dynamic> toJson() {
     return {
+      'tourist_id': touristId,
       'lat': latitude,
       'lon': longitude,
       'timestamp': timestamp.toIso8601String(),
       'accuracy': accuracy,
+      'altitude': altitude,
+      'speed': speed,
+      'heading': heading,
     };
-  }
-
-  factory LocationData.fromJson(Map<String, dynamic> json) {
-    return LocationData(
-      latitude: json['lat']?.toDouble() ?? 0.0,
-      longitude: json['lon']?.toDouble() ?? 0.0,
-      timestamp: json['timestamp'] != null
-          ? DateTime.parse(json['timestamp'])
-          : DateTime.now(),
-      accuracy: json['accuracy']?.toDouble(),
-    );
   }
 }
 
@@ -40,95 +54,78 @@ class HeatmapPoint {
   final double latitude;
   final double longitude;
   final double intensity;
-  final String riskLevel;
 
   HeatmapPoint({
     required this.latitude,
     required this.longitude,
     required this.intensity,
-    required this.riskLevel,
   });
 
   LatLng get latLng => LatLng(latitude, longitude);
 
   factory HeatmapPoint.fromJson(Map<String, dynamic> json) {
     return HeatmapPoint(
-      latitude: json['latitude']?.toDouble() ?? 0.0,
-      longitude: json['longitude']?.toDouble() ?? 0.0,
-      intensity: json['intensity']?.toDouble() ?? 0.0,
-      riskLevel: json['risk_level'] ?? 'low',
+      latitude: json['lat'].toDouble(),
+      longitude: json['lon'].toDouble(),
+      intensity: json['intensity'].toDouble(),
     );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'lat': latitude,
+      'lon': longitude,
+      'intensity': intensity,
+    };
   }
 }
 
-class HeatmapResponse {
-  final List<HeatmapPoint> points;
-  final HeatmapMetadata metadata;
+class SafetyScore {
+  final String touristId;
+  final int score;
+  final String level;
+  final String description;
+  final DateTime updatedAt;
 
-  HeatmapResponse({
-    required this.points,
-    required this.metadata,
+  SafetyScore({
+    required this.touristId,
+    required this.score,
+    required this.level,
+    required this.description,
+    required this.updatedAt,
   });
 
-  factory HeatmapResponse.fromJson(Map<String, dynamic> json) {
-    return HeatmapResponse(
-      points: (json['points'] as List<dynamic>? ?? [])
-          .map((point) => HeatmapPoint.fromJson(point))
-          .toList(),
-      metadata: HeatmapMetadata.fromJson(json['metadata'] ?? {}),
+  String get levelColor {
+    if (score >= 80) return 'green';
+    if (score >= 60) return 'yellow';
+    return 'red';
+  }
+
+  factory SafetyScore.fromJson(Map<String, dynamic> json) {
+    return SafetyScore(
+      touristId: json['tourist_id'],
+      score: json['score'],
+      level: json['level'] ?? _getLevelFromScore(json['score']),
+      description: json['description'] ?? '',
+      updatedAt: json['updated_at'] != null
+          ? DateTime.parse(json['updated_at'])
+          : DateTime.now(),
     );
   }
-}
 
-class HeatmapMetadata {
-  final int totalPoints;
-  final int timeWindowHours;
-  final double gridSize;
-  final bool includesAlerts;
-
-  HeatmapMetadata({
-    required this.totalPoints,
-    required this.timeWindowHours,
-    required this.gridSize,
-    required this.includesAlerts,
-  });
-
-  factory HeatmapMetadata.fromJson(Map<String, dynamic> json) {
-    return HeatmapMetadata(
-      totalPoints: json['total_points'] ?? 0,
-      timeWindowHours: json['time_window_hours'] ?? 24,
-      gridSize: json['grid_size']?.toDouble() ?? 0.005,
-      includesAlerts: json['includes_alerts'] ?? true,
-    );
+  static String _getLevelFromScore(int score) {
+    if (score >= 80) return 'Safe';
+    if (score >= 60) return 'Medium';
+    return 'Risk';
   }
-}
 
-class RestrictedZone {
-  final String id;
-  final String name;
-  final List<LatLng> polygonCoordinates;
-
-  RestrictedZone({
-    required this.id,
-    required this.name,
-    required this.polygonCoordinates,
-  });
-
-  factory RestrictedZone.fromJson(Map<String, dynamic> json) {
-    List<LatLng> coordinates = [];
-    if (json['polygon_coordinates'] != null) {
-      for (var coord in json['polygon_coordinates']) {
-        coordinates.add(LatLng(
-          coord['lat']?.toDouble() ?? 0.0,
-          coord['lon']?.toDouble() ?? 0.0,
-        ));
-      }
-    }
-
-    return RestrictedZone(
-      id: json['id'] ?? '',
-      name: json['name'] ?? '',
-      polygonCoordinates: coordinates,
-    );
+  Map<String, dynamic> toJson() {
+    return {
+      'tourist_id': touristId,
+      'score': score,
+      'level': level,
+      'description': description,
+      'updated_at': updatedAt.toIso8601String(),
+    };
   }
 }

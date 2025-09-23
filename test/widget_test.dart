@@ -10,13 +10,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile/main.dart';
 
 void main() {
-  testWidgets('App starts with login screen', (WidgetTester tester) async {
+  testWidgets('Tourist Safety App smoke test', (WidgetTester tester) async {
     // Build our app and trigger a frame.
     await tester.pumpWidget(const TouristSafetyApp());
 
     // Verify that login screen appears
-    expect(find.text('Tourist Safety App'), findsOneWidget);
-    expect(find.text('Full Name'), findsOneWidget);
-    expect(find.text('Tourist ID'), findsOneWidget);
+    expect(find.text('Tourist Safety'), findsOneWidget);
+    expect(find.text('Welcome to Tourist Safety App'), findsOneWidget);
   });
 }

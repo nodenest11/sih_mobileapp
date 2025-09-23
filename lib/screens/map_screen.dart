@@ -3,190 +3,226 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import '../models/tourist.dart';
 import '../models/location.dart';
-import '../services/location_service.dart';
+import '../models/alert.dart';
 import '../services/api_service.dart';
-import '../widgets/panic_button.dart';
-import '../widgets/safety_score_widget.dart';
-import '../widgets/search_bar.dart';
+import '../services/location_service.dart';
+import '../widgets/search_bar.dart' as custom_search;
 
 class MapScreen extends StatefulWidget {
   final Tourist tourist;
 
-  const MapScreen({super.key, required this.tourist});
+  const MapScreen({
+    super.key,
+    required this.tourist,
+  });
 
   @override
   State<MapScreen> createState() => _MapScreenState();
 }
 
-class _MapScreenState extends State<MapScreen> {
+class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   final MapController _mapController = MapController();
-  final LocationService _locationService = LocationService();
   final ApiService _apiService = ApiService();
+  final LocationService _locationService = LocationService();
   
-  LatLng _currentLocation = const LatLng(28.6139, 77.2090); // Default: Delhi
+  LatLng _currentLocation = const LatLng(28.6139, 77.2090); // Delhi as default
   List<HeatmapPoint> _heatmapData = [];
   List<RestrictedZone> _restrictedZones = [];
-  bool _isLoading = true;
+  List<Marker> _markers = [];
+  List<Polygon> _polygons = [];
   
-  // Heatmap settings
-  int _heatmapHours = 24;
-  bool _includeAlerts = true;
-  double _gridSize = 0.005;
-  
+  bool _isLoadingHeatmap = false;
+  bool _isLoadingZones = false;
+  bool _showHeatmap = true;
+  bool _showRestrictedZones = true;
+  bool _isFollowingUser = false;
+
+  late AnimationController _pulseController;
+  late Animation<double> _pulseAnimation;
+
   @override
   void initState() {
     super.initState();
+    _pulseController = AnimationController(
+      duration: const Duration(seconds: 2),
+      vsync: this,
+    )..repeat();
+    
+    _pulseAnimation = Tween<double>(
+      begin: 0.0,
+      end: 1.0,
+    ).animate(CurvedAnimation(
+      parent: _pulseController,
+      curve: Curves.easeInOut,
+    ));
+    
     _initializeMap();
   }
 
-  Future<void> _initializeMap() async {
-    try {
-      // Start location tracking
-      await _locationService.startLocationTracking();
-      
-      // Get current location
-      LocationData location = await _locationService.getCurrentLocation();
-      setState(() {
-        _currentLocation = LatLng(location.latitude, location.longitude);
-      });
+  @override
+  void dispose() {
+    _pulseController.dispose();
+    super.dispose();
+  }
 
-      // Load heatmap data
-      _loadHeatmapData();
-      
-      // Load restricted zones
-      _loadRestrictedZones();
-      
-      // Listen to location updates
-      _locationService.locationStream.listen((location) {
+  Future<void> _initializeMap() async {
+    await _getCurrentLocation();
+    await _loadHeatmapData();
+    await _loadRestrictedZones();
+    _listenToLocationUpdates();
+  }
+
+  Future<void> _getCurrentLocation() async {
+    try {
+      final position = await _locationService.getCurrentLocation();
+      if (position != null) {
         setState(() {
-          _currentLocation = LatLng(location.latitude, location.longitude);
+          _currentLocation = LatLng(position.latitude, position.longitude);
         });
-        
-        // Update location on backend
-        _updateLocationOnBackend(location.latitude, location.longitude);
-        
-        // Check geo-fencing
-        _checkGeofencing(location.latitude, location.longitude);
-      });
-      
-      setState(() {
-        _isLoading = false;
-      });
-    } catch (e) {
-      debugPrint('Error initializing map: $e');
-      setState(() {
-        _isLoading = false;
-      });
-      
-      // Show error dialog
-      if (mounted) {
-        _showErrorDialog('Location Error', 
-          'Unable to access location. Please enable location services and restart the app.');
+        _updateMapCenter(_currentLocation);
       }
+    } catch (e) {
+      // Use default location if unable to get current location
     }
   }
 
-  Future<void> _loadHeatmapData() async {
-    try {
-      // Load heatmap with current settings
-      HeatmapResponse heatmapResponse = await _apiService.getHeatmapData(
-        hours: _heatmapHours,
-        includeAlerts: _includeAlerts,
-        gridSize: _gridSize,
-      );
-      
+  void _listenToLocationUpdates() {
+    _locationService.locationStream.listen((locationData) {
       setState(() {
-        _heatmapData = heatmapResponse.points;
+        _currentLocation = locationData.latLng;
       });
       
-      debugPrint('Loaded ${heatmapResponse.points.length} heatmap points from ${heatmapResponse.metadata.timeWindowHours}h window');
-    } catch (e) {
-      debugPrint('Error loading heatmap data: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to load heatmap data: ${e.toString()}'),
-            backgroundColor: Colors.orange,
-            duration: const Duration(seconds: 3),
-          ),
-        );
+      // Check for geo-fence violations
+      _checkGeoFenceViolations(locationData.latLng);
+      
+      // Update map center if following user
+      if (_isFollowingUser) {
+        _updateMapCenter(_currentLocation);
       }
+    });
+  }
+
+  Future<void> _loadHeatmapData() async {
+    setState(() {
+      _isLoadingHeatmap = true;
+    });
+
+    try {
+      final heatmapData = await _apiService.getHeatmapData();
+      setState(() {
+        _heatmapData = heatmapData;
+        _isLoadingHeatmap = false;
+      });
+    } catch (e) {
+      setState(() {
+        _isLoadingHeatmap = false;
+      });
     }
   }
 
   Future<void> _loadRestrictedZones() async {
+    setState(() {
+      _isLoadingZones = true;
+    });
+
     try {
-      List<RestrictedZone> zones = await _apiService.getRestrictedZones();
+      final zones = await _apiService.getRestrictedZones();
       setState(() {
         _restrictedZones = zones;
+        _isLoadingZones = false;
       });
+      _updatePolygons();
     } catch (e) {
-      debugPrint('Error loading restricted zones: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to load restricted zones: ${e.toString()}'),
-            backgroundColor: Colors.orange,
-            duration: const Duration(seconds: 3),
-          ),
-        );
-      }
+      setState(() {
+        _isLoadingZones = false;
+      });
     }
   }
 
-  Future<void> _updateLocationOnBackend(double lat, double lon) async {
-    try {
-      await _apiService.updateLocation(widget.tourist.id, lat, lon);
-    } catch (e) {
-      debugPrint('Failed to update location on backend: $e');
-      // Don't show user notification for location updates as they happen frequently
-      // Just log the error
+  void _updateMapCenter(LatLng location) {
+    _mapController.move(location, 15.0);
+  }
+
+  void _updatePolygons() {
+    _polygons = _restrictedZones.map((zone) => Polygon(
+      points: zone.polygonCoordinates,
+      color: _getZoneColor(zone.type).withOpacity(0.3),
+      borderColor: _getZoneColor(zone.type),
+      borderStrokeWidth: 2.0,
+    )).toList();
+  }
+
+  Color _getZoneColor(ZoneType type) {
+    switch (type) {
+      case ZoneType.highRisk:
+        return Colors.red;
+      case ZoneType.dangerous:
+        return Colors.purple;
+      case ZoneType.restricted:
+        return Colors.orange;
+      case ZoneType.caution:
+        return Colors.yellow;
     }
   }
 
-  void _checkGeofencing(double lat, double lon) {
-    for (RestrictedZone zone in _restrictedZones) {
-      // Simple point-in-polygon check for geo-fencing
-      if (_isPointInPolygon(lat, lon, zone.polygonCoordinates)) {
-        _showGeofencingAlert(zone.name);
+  void _checkGeoFenceViolations(LatLng currentPos) {
+    for (final zone in _restrictedZones) {
+      if (_locationService.isPointInPolygon(currentPos, zone.polygonCoordinates)) {
+        _showGeoFenceAlert(zone);
         break;
       }
     }
   }
 
-  bool _isPointInPolygon(double lat, double lon, List<LatLng> polygon) {
-    bool inside = false;
-    int j = polygon.length - 1;
-    
-    for (int i = 0; i < polygon.length; i++) {
-      if (((polygon[i].longitude > lon) != (polygon[j].longitude > lon)) &&
-          (lat < (polygon[j].latitude - polygon[i].latitude) * 
-           (lon - polygon[i].longitude) / 
-           (polygon[j].longitude - polygon[i].longitude) + polygon[i].latitude)) {
-        inside = !inside;
-      }
-      j = i;
-    }
-    return inside;
-  }
-
-  void _showGeofencingAlert(String zoneName) {
+  void _showGeoFenceAlert(RestrictedZone zone) {
     showDialog(
       context: context,
+      barrierDismissible: false,
       builder: (BuildContext context) {
         return AlertDialog(
-          title: const Row(
+          title: Row(
             children: [
-              Icon(Icons.warning, color: Colors.orange),
-              SizedBox(width: 8),
-              Text('Restricted Area Warning'),
+              Icon(
+                Icons.warning,
+                color: _getZoneColor(zone.type),
+                size: 28,
+              ),
+              const SizedBox(width: 8),
+              const Text('Area Alert'),
             ],
           ),
-          content: Text('⚠️ You have entered a restricted/high-risk area: $zoneName'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                zone.warningMessage ?? '⚠ You have entered a restricted/high-risk area.',
+                style: const TextStyle(fontSize: 16),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Zone: ${zone.name}',
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+              if (zone.description.isNotEmpty)
+                Text(zone.description),
+            ],
+          ),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(),
               child: const Text('OK'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                // Optionally navigate away from the area or show directions
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _getZoneColor(zone.type),
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Get Directions Away'),
             ),
           ],
         );
@@ -194,67 +230,62 @@ class _MapScreenState extends State<MapScreen> {
     );
   }
 
-  void _showErrorDialog(String title, String message) {
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: Text(title),
-          content: Text(message),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('OK'),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  void _onSearchLocation(String query) async {
-    try {
-      final result = await _apiService.searchLocation(query);
-      if (result != null) {
-        LatLng newLocation = LatLng(result['lat'], result['lon']);
-        _mapController.move(newLocation, 15.0);
-      } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Location not found')),
-          );
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error searching location: $e')),
-        );
-      }
+  void _toggleFollowUser() {
+    setState(() {
+      _isFollowingUser = !_isFollowingUser;
+    });
+    
+    if (_isFollowingUser) {
+      _updateMapCenter(_currentLocation);
     }
+  }
+
+  void _onLocationSelected(LatLng location, String name) {
+    _updateMapCenter(location);
+    
+    // Add a temporary marker for the searched location
+    setState(() {
+      _markers = [
+        ..._markers,
+        Marker(
+          point: location,
+          width: 40,
+          height: 40,
+          child: const Icon(
+            Icons.location_on,
+            color: Colors.blue,
+            size: 40,
+          ),
+        ),
+      ];
+    });
+
+    // Show location info
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Found: $name'),
+        duration: const Duration(seconds: 2),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoading) {
-      return const Scaffold(
-        body: Center(
-          child: CircularProgressIndicator(),
-        ),
-      );
-    }
-
     return Scaffold(
       appBar: AppBar(
-        title: Text('Welcome, ${widget.tourist.name}'),
-        backgroundColor: const Color(0xFF1565C0),
+        title: const Text('Safety Map'),
+        backgroundColor: Colors.blue,
         foregroundColor: Colors.white,
-        elevation: 0,
         actions: [
           IconButton(
+            onPressed: () => _showMapOptions(),
             icon: const Icon(Icons.layers),
-            onPressed: _showHeatmapSettings,
-            tooltip: 'Heatmap Settings',
+          ),
+          IconButton(
+            onPressed: _toggleFollowUser,
+            icon: Icon(
+              _isFollowingUser ? Icons.my_location : Icons.location_searching,
+            ),
           ),
         ],
       ),
@@ -266,89 +297,80 @@ class _MapScreenState extends State<MapScreen> {
             options: MapOptions(
               initialCenter: _currentLocation,
               initialZoom: 15.0,
+              minZoom: 5.0,
               maxZoom: 18.0,
-              minZoom: 3.0,
             ),
             children: [
-              // OpenStreetMap tiles
+              // OpenStreetMap tile layer
               TileLayer(
                 urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                userAgentPackageName: 'com.example.mobile',
+                userAgentPackageName: 'com.example.tourist_safety',
               ),
               
-              // Heatmap overlay with risk-based colors
-              if (_heatmapData.isNotEmpty)
-                CircleLayer(
-                  circles: _heatmapData.map((point) {
-                    // Color based on risk level
-                    Color color;
-                    switch (point.riskLevel) {
-                      case 'high':
-                        color = Colors.red;
-                        break;
-                      case 'medium':
-                        color = Colors.orange;
-                        break;
-                      case 'low':
-                      default:
-                        color = Colors.yellow;
-                        break;
-                    }
-                    
-                    // Scale radius based on intensity (0-100)
-                    double radiusMultiplier = (point.intensity / 100).clamp(0.2, 1.0);
-                    
-                    return CircleMarker(
-                      point: point.latLng,
-                      radius: 30 + (70 * radiusMultiplier), // 30-100m radius
-                      useRadiusInMeter: true,
-                      color: color.withValues(alpha: 0.3 + (0.4 * radiusMultiplier)),
-                      borderColor: color.withValues(alpha: 0.8),
-                      borderStrokeWidth: 2,
-                    );
-                  }).toList(),
-                ),
-              
-              // Restricted zones
-              if (_restrictedZones.isNotEmpty)
+              // Restricted zones polygons
+              if (_showRestrictedZones)
                 PolygonLayer(
-                  polygons: _restrictedZones.map((zone) {
-                    return Polygon(
-                      points: zone.polygonCoordinates,
-                      color: Colors.red.withOpacity(0.2),
-                      borderColor: Colors.red,
-                      borderStrokeWidth: 2,
-                    );
-                  }).toList(),
+                  polygons: _polygons,
                 ),
               
-              // Current location marker
+              // Heatmap circles (custom implementation)
+              if (_showHeatmap)
+                CircleLayer(
+                  circles: _heatmapData.map((point) => CircleMarker(
+                    point: point.latLng,
+                    color: Colors.red.withOpacity(point.intensity * 0.6),
+                    borderColor: Colors.red.withOpacity(point.intensity),
+                    borderStrokeWidth: 1.0,
+                    radius: 20 + (point.intensity * 30),
+                  )).toList(),
+                ),
+              
+              // Markers layer
               MarkerLayer(
                 markers: [
+                  // Current location marker with pulse animation
                   Marker(
                     point: _currentLocation,
                     width: 60,
                     height: 60,
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: Colors.blue,
-                        shape: BoxShape.circle,
-                        border: Border.all(color: Colors.white, width: 3),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.3),
-                            blurRadius: 6,
-                            offset: const Offset(0, 3),
-                          ),
-                        ],
-                      ),
-                      child: const Icon(
-                        Icons.person,
-                        color: Colors.white,
-                        size: 30,
-                      ),
+                    child: AnimatedBuilder(
+                      animation: _pulseAnimation,
+                      builder: (context, child) {
+                        return Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            // Pulse effect
+                            Container(
+                              width: 60 * (1 + _pulseAnimation.value * 0.5),
+                              height: 60 * (1 + _pulseAnimation.value * 0.5),
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: Colors.blue.withOpacity(0.3 * (1 - _pulseAnimation.value)),
+                              ),
+                            ),
+                            // Main marker
+                            Container(
+                              width: 20,
+                              height: 20,
+                              decoration: const BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: Colors.blue,
+                              ),
+                              child: const Center(
+                                child: Icon(
+                                  Icons.person,
+                                  color: Colors.white,
+                                  size: 12,
+                                ),
+                              ),
+                            ),
+                          ],
+                        );
+                      },
                     ),
                   ),
+                  // Other markers
+                  ..._markers,
                 ],
               ),
             ],
@@ -356,135 +378,158 @@ class _MapScreenState extends State<MapScreen> {
           
           // Search bar
           Positioned(
-            top: 16,
-            left: 16,
-            right: 16,
-            child: LocationSearchBar(onSearch: _onSearchLocation),
-          ),
-          
-          // Safety score widget
-          Positioned(
-            top: 80,
-            right: 16,
-            child: SafetyScoreWidget(touristId: widget.tourist.id),
-          ),
-          
-          // Panic button
-          Positioned(
-            bottom: 100,
-            right: 16,
-            child: PanicButton(
-              touristId: widget.tourist.id,
-              currentLocation: _currentLocation,
+            top: 10,
+            left: 0,
+            right: 0,
+            child: custom_search.SearchBar(
+              onLocationSelected: _onLocationSelected,
+              hintText: 'Search for a place...',
             ),
+          ),
+          
+          // Loading indicators
+          if (_isLoadingHeatmap || _isLoadingZones)
+            Positioned(
+              top: 100,
+              right: 16,
+              child: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(8),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.1),
+                      blurRadius: 4,
+                    ),
+                  ],
+                ),
+                child: const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              ),
+            ),
+        ],
+      ),
+      floatingActionButton: Column(
+        mainAxisAlignment: MainAxisAlignment.end,
+        children: [
+          FloatingActionButton(
+            heroTag: "zoom_in",
+            mini: true,
+            onPressed: () {
+              final zoom = _mapController.camera.zoom + 1;
+              _mapController.move(_mapController.camera.center, zoom);
+            },
+            child: const Icon(Icons.zoom_in),
+          ),
+          const SizedBox(height: 8),
+          FloatingActionButton(
+            heroTag: "zoom_out",
+            mini: true,
+            onPressed: () {
+              final zoom = _mapController.camera.zoom - 1;
+              _mapController.move(_mapController.camera.center, zoom);
+            },
+            child: const Icon(Icons.zoom_out),
+          ),
+          const SizedBox(height: 8),
+          FloatingActionButton(
+            heroTag: "my_location",
+            mini: true,
+            onPressed: () async {
+              await _getCurrentLocation();
+              _updateMapCenter(_currentLocation);
+            },
+            child: const Icon(Icons.my_location),
           ),
         ],
       ),
     );
   }
 
-  void _showHeatmapSettings() {
-    showDialog(
+  void _showMapOptions() {
+    showModalBottomSheet(
       context: context,
       builder: (BuildContext context) {
         return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              title: const Text('Heatmap Settings'),
-              content: Column(
+          builder: (context, setModalState) {
+            return Container(
+              padding: const EdgeInsets.all(16),
+              child: Column(
                 mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Time window setting
-                  Row(
-                    children: [
-                      const Text('Time Window: '),
-                      Expanded(
-                        child: DropdownButton<int>(
-                          value: _heatmapHours,
-                          isExpanded: true,
-                          items: const [
-                            DropdownMenuItem(value: 1, child: Text('Last 1 hour')),
-                            DropdownMenuItem(value: 6, child: Text('Last 6 hours')),
-                            DropdownMenuItem(value: 12, child: Text('Last 12 hours')),
-                            DropdownMenuItem(value: 24, child: Text('Last 24 hours')),
-                            DropdownMenuItem(value: 72, child: Text('Last 3 days')),
-                            DropdownMenuItem(value: 168, child: Text('Last 7 days')),
-                          ],
-                          onChanged: (value) {
-                            setDialogState(() {
-                              _heatmapHours = value!;
-                            });
-                          },
-                        ),
-                      ),
-                    ],
+                  const Text(
+                    'Map Options',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                   const SizedBox(height: 16),
-                  
-                  // Include alerts setting
-                  Row(
-                    children: [
-                      const Text('Include Alert Hotspots: '),
-                      Switch(
-                        value: _includeAlerts,
-                        onChanged: (value) {
-                          setDialogState(() {
-                            _includeAlerts = value;
-                          });
-                        },
-                      ),
-                    ],
+                  SwitchListTile(
+                    title: const Text('Show Heatmap'),
+                    subtitle: const Text('Display safety intensity areas'),
+                    value: _showHeatmap,
+                    onChanged: (value) {
+                      setModalState(() {
+                        _showHeatmap = value;
+                      });
+                      setState(() {
+                        _showHeatmap = value;
+                      });
+                    },
+                  ),
+                  SwitchListTile(
+                    title: const Text('Show Restricted Zones'),
+                    subtitle: const Text('Display high-risk and restricted areas'),
+                    value: _showRestrictedZones,
+                    onChanged: (value) {
+                      setModalState(() {
+                        _showRestrictedZones = value;
+                      });
+                      setState(() {
+                        _showRestrictedZones = value;
+                      });
+                    },
+                  ),
+                  SwitchListTile(
+                    title: const Text('Follow My Location'),
+                    subtitle: const Text('Keep map centered on your location'),
+                    value: _isFollowingUser,
+                    onChanged: (value) {
+                      setModalState(() {
+                        _isFollowingUser = value;
+                      });
+                      setState(() {
+                        _isFollowingUser = value;
+                      });
+                      if (_isFollowingUser) {
+                        _updateMapCenter(_currentLocation);
+                      }
+                    },
                   ),
                   const SizedBox(height: 16),
-                  
-                  // Grid size setting
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Detail Level: ${_gridSize == 0.001 ? 'Very High' : _gridSize == 0.005 ? 'High' : _gridSize == 0.01 ? 'Medium' : 'Low'}'),
-                      Slider(
-                        value: _gridSize,
-                        min: 0.001,
-                        max: 0.1,
-                        divisions: 3,
-                        onChanged: (value) {
-                          setDialogState(() {
-                            _gridSize = value;
-                          });
-                        },
-                      ),
-                      const Text(
-                        'Higher detail may show more points but take longer to load',
-                        style: TextStyle(fontSize: 12, color: Colors.grey),
-                      ),
-                    ],
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: () async {
+                        Navigator.of(context).pop();
+                        await _loadHeatmapData();
+                        await _loadRestrictedZones();
+                      },
+                      child: const Text('Refresh Map Data'),
+                    ),
                   ),
                 ],
               ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('Cancel'),
-                ),
-                ElevatedButton(
-                  onPressed: () {
-                    Navigator.of(context).pop();
-                    setState(() {}); // Update the main state
-                    _loadHeatmapData(); // Reload heatmap with new settings
-                  },
-                  child: const Text('Apply'),
-                ),
-              ],
             );
           },
         );
       },
     );
-  }
-
-  @override
-  void dispose() {
-    _locationService.dispose();
-    super.dispose();
   }
 }
