@@ -25,7 +25,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   final ApiService _apiService = ApiService();
   final LocationService _locationService = LocationService();
   
-  LatLng _currentLocation = const LatLng(28.6139, 77.2090); // Delhi as default
+  LatLng? _currentLocation; // Will be set when location is obtained
   List<HeatmapPoint> _heatmapData = [];
   List<RestrictedZone> _restrictedZones = [];
   List<Marker> _markers = [];
@@ -79,10 +79,12 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
         setState(() {
           _currentLocation = LatLng(position.latitude, position.longitude);
         });
-        _updateMapCenter(_currentLocation);
+        if (_currentLocation != null) {
+          _updateMapCenter(_currentLocation!);
+        }
       }
     } catch (e) {
-      // Use default location if unable to get current location
+      // Unable to get current location - map will show world view initially
     }
   }
 
@@ -96,8 +98,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       _checkGeoFenceViolations(locationData.latLng);
       
       // Update map center if following user
-      if (_isFollowingUser) {
-        _updateMapCenter(_currentLocation);
+      if (_isFollowingUser && _currentLocation != null) {
+        _updateMapCenter(_currentLocation!);
       }
     });
   }
@@ -235,8 +237,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       _isFollowingUser = !_isFollowingUser;
     });
     
-    if (_isFollowingUser) {
-      _updateMapCenter(_currentLocation);
+    if (_isFollowingUser && _currentLocation != null) {
+      _updateMapCenter(_currentLocation!);
     }
   }
 
@@ -289,22 +291,36 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
           ),
         ],
       ),
-      body: Stack(
-        children: [
-          // Map
-          FlutterMap(
-            mapController: _mapController,
-            options: MapOptions(
-              initialCenter: _currentLocation,
-              initialZoom: 15.0,
-              minZoom: 5.0,
-              maxZoom: 18.0,
+      body: _currentLocation == null 
+        ? const Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(height: 16),
+                Text(
+                  'Waiting for location data from backend...',
+                  style: TextStyle(fontSize: 16),
+                ),
+              ],
             ),
+          )
+        : Stack(
+            children: [
+              // Map
+              FlutterMap(
+                mapController: _mapController,
+                options: MapOptions(
+                  initialCenter: _currentLocation!,
+                  initialZoom: 15.0,
+                  minZoom: 1.0,
+                  maxZoom: 18.0,
+                ),
             children: [
               // OpenStreetMap tile layer
               TileLayer(
                 urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                userAgentPackageName: 'com.example.tourist_safety',
+                userAgentPackageName: 'com.tourist.safety',
               ),
               
               // Restricted zones polygons
@@ -328,24 +344,25 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
               // Markers layer
               MarkerLayer(
                 markers: [
-                  // Current location marker with pulse animation
-                  Marker(
-                    point: _currentLocation,
-                    width: 60,
-                    height: 60,
-                    child: AnimatedBuilder(
-                      animation: _pulseAnimation,
-                      builder: (context, child) {
-                        return Stack(
-                          alignment: Alignment.center,
-                          children: [
-                            // Pulse effect
-                            Container(
-                              width: 60 * (1 + _pulseAnimation.value * 0.5),
-                              height: 60 * (1 + _pulseAnimation.value * 0.5),
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: Colors.blue.withOpacity(0.3 * (1 - _pulseAnimation.value)),
+                  // Current location marker with pulse animation (only if location is available)
+                  if (_currentLocation != null)
+                    Marker(
+                      point: _currentLocation!,
+                      width: 60,
+                      height: 60,
+                      child: AnimatedBuilder(
+                        animation: _pulseAnimation,
+                        builder: (context, child) {
+                          return Stack(
+                            alignment: Alignment.center,
+                            children: [
+                              // Pulse effect
+                              Container(
+                                width: 60 * (1 + _pulseAnimation.value * 0.5),
+                                height: 60 * (1 + _pulseAnimation.value * 0.5),
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: Colors.blue.withOpacity(0.3 * (1 - _pulseAnimation.value)),
                               ),
                             ),
                             // Main marker
@@ -441,7 +458,9 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
             mini: true,
             onPressed: () async {
               await _getCurrentLocation();
-              _updateMapCenter(_currentLocation);
+              if (_currentLocation != null) {
+                _updateMapCenter(_currentLocation!);
+              }
             },
             child: const Icon(Icons.my_location),
           ),
@@ -507,8 +526,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                       setState(() {
                         _isFollowingUser = value;
                       });
-                      if (_isFollowingUser) {
-                        _updateMapCenter(_currentLocation);
+                      if (_isFollowingUser && _currentLocation != null) {
+                        _updateMapCenter(_currentLocation!);
                       }
                     },
                   ),

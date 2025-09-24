@@ -14,7 +14,6 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
-  final _touristIdController = TextEditingController();
   final _emailController = TextEditingController();
   final _phoneController = TextEditingController();
   
@@ -30,7 +29,6 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   void dispose() {
     _nameController.dispose();
-    _touristIdController.dispose();
     _emailController.dispose();
     _phoneController.dispose();
     super.dispose();
@@ -70,29 +68,29 @@ class _LoginScreenState extends State<LoginScreen> {
     try {
       final response = await _apiService.registerTourist(
         name: _nameController.text.trim(),
-        touristId: _touristIdController.text.trim(),
-        email: _emailController.text.trim().isNotEmpty ? _emailController.text.trim() : null,
-        phone: _phoneController.text.trim().isNotEmpty ? _phoneController.text.trim() : null,
+        contact: _phoneController.text.trim(),
+        emergencyContact: _phoneController.text.trim(), // Using same phone as emergency for now
+        tripInfo: null, // No default trip info - let backend handle
       );
 
       if (response['success'] == true) {
+        final touristData = response['tourist'];
+        
         // Save user data locally
         final prefs = await SharedPreferences.getInstance();
-        await prefs.setString('tourist_id', _touristIdController.text.trim());
+        await prefs.setString('tourist_id', touristData['id'].toString());
         await prefs.setString('tourist_name', _nameController.text.trim());
+        await prefs.setString('tourist_phone', _phoneController.text.trim());
         if (_emailController.text.trim().isNotEmpty) {
           await prefs.setString('tourist_email', _emailController.text.trim());
-        }
-        if (_phoneController.text.trim().isNotEmpty) {
-          await prefs.setString('tourist_phone', _phoneController.text.trim());
         }
 
         // Create tourist object
         final tourist = Tourist(
-          id: _touristIdController.text.trim(),
+          id: touristData['id'].toString(),
           name: _nameController.text.trim(),
           email: _emailController.text.trim().isNotEmpty ? _emailController.text.trim() : null,
-          phone: _phoneController.text.trim().isNotEmpty ? _phoneController.text.trim() : null,
+          phone: _phoneController.text.trim(),
           registrationDate: DateTime.now(),
         );
 
@@ -186,106 +184,131 @@ class _LoginScreenState extends State<LoginScreen> {
                   
                   // App Title
                   const Text(
-                    'Tourist Safety App',
+                    'Tourist Safety',
                     style: TextStyle(
-                      fontSize: 28,
+                      fontSize: 32,
                       fontWeight: FontWeight.bold,
                       color: Colors.white,
                     ),
                   ),
                   const SizedBox(height: 8),
                   const Text(
-                    'Stay safe, stay connected',
+                    'Your safety companion for travel',
                     style: TextStyle(
-                      fontSize: 16,
+                      fontSize: 18,
                       color: Colors.white70,
                     ),
                   ),
-                  const SizedBox(height: 48),
-
-                  // Registration Form
-                  Container(
-                    padding: const EdgeInsets.all(24),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(20),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.1),
-                          blurRadius: 20,
-                          offset: const Offset(0, 10),
-                        ),
-                      ],
-                    ),
-                    child: Form(
-                      key: _formKey,
+                  const SizedBox(height: 40),
+                  
+                  // Welcome Card
+                  Card(
+                    elevation: 8,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
                       child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           const Text(
-                            'Welcome!',
+                            'Welcome! Let\'s get you started 👋',
                             style: TextStyle(
-                              fontSize: 24,
+                              fontSize: 22,
                               fontWeight: FontWeight.bold,
                               color: Color(0xFF2196F3),
                             ),
-                            textAlign: TextAlign.center,
                           ),
                           const SizedBox(height: 8),
-                          const Text(
-                            'Please register to get started',
+                          Text(
+                            'Create your safety profile to start tracking your location and ensure help is always available.',
                             style: TextStyle(
                               fontSize: 16,
-                              color: Colors.grey,
+                              color: Colors.grey[600],
+                              height: 1.4,
                             ),
-                            textAlign: TextAlign.center,
                           ),
-                          const SizedBox(height: 32),
+                          const SizedBox(height: 24),
+                          
+                          // Form instructions
+                          Row(
+                            children: [
+                              Icon(Icons.info_outline, color: Colors.blue[600], size: 20),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'Fill in your details below',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    color: Colors.grey[600],
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 24),
 
-                          // Name Field
+                          // Form within the welcome card
+                          Form(
+                            key: _formKey,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
                           TextFormField(
                             controller: _nameController,
-                            decoration: const InputDecoration(
-                              labelText: 'Full Name',
-                              prefixIcon: Icon(Icons.person),
+                            textCapitalization: TextCapitalization.words,
+                            decoration: InputDecoration(
+                              labelText: 'Full Name *',
+                              hintText: 'Enter your full name',
+                              prefixIcon: const Icon(Icons.person_outline),
                               border: OutlineInputBorder(
-                                borderRadius: BorderRadius.all(Radius.circular(12)),
+                                borderRadius: BorderRadius.circular(12),
                               ),
+                              filled: true,
+                              fillColor: Colors.grey[50],
                             ),
                             validator: (value) {
                               if (value == null || value.trim().isEmpty) {
-                                return 'Please enter your name';
+                                return '👤 Please enter your full name';
                               }
                               if (value.trim().length < 2) {
-                                return 'Name must be at least 2 characters';
+                                return '👤 Name must be at least 2 characters';
                               }
                               return null;
                             },
                           ),
-                          const SizedBox(height: 16),
+                          const SizedBox(height: 20),
 
-                          // Tourist ID Field
+                          // Phone Field
                           TextFormField(
-                            controller: _touristIdController,
-                            decoration: const InputDecoration(
-                              labelText: 'Tourist ID',
-                              prefixIcon: Icon(Icons.badge),
+                            controller: _phoneController,
+                            keyboardType: TextInputType.phone,
+                            decoration: InputDecoration(
+                              labelText: 'Phone Number *',
+                              hintText: '9876543210',
+                              prefixIcon: const Icon(Icons.phone_outlined),
+                              prefixText: '+91 ',
                               border: OutlineInputBorder(
-                                borderRadius: BorderRadius.all(Radius.circular(12)),
+                                borderRadius: BorderRadius.circular(12),
                               ),
-                              helperText: 'Unique identifier for your account',
+                              filled: true,
+                              fillColor: Colors.grey[50],
+                              helperText: 'This will be used for emergency contact',
+                              helperStyle: TextStyle(color: Colors.grey[600]),
                             ),
                             validator: (value) {
                               if (value == null || value.trim().isEmpty) {
-                                return 'Please enter your Tourist ID';
+                                return '📱 Phone number is required for safety';
                               }
-                              if (value.trim().length < 3) {
-                                return 'Tourist ID must be at least 3 characters';
+                              if (value.trim().length != 10) {
+                                return '📱 Please enter a valid 10-digit phone number';
+                              }
+                              if (!RegExp(r'^[6-9][0-9]{9}$').hasMatch(value.trim())) {
+                                return '📱 Please enter a valid Indian mobile number';
                               }
                               return null;
                             },
                           ),
-                          const SizedBox(height: 16),
 
                           // Email Field (Optional)
                           TextFormField(
@@ -359,6 +382,9 @@ class _LoginScreenState extends State<LoginScreen> {
                                       fontWeight: FontWeight.bold,
                                     ),
                                   ),
+                          ),
+                              ],
+                            ),
                           ),
                         ],
                       ),

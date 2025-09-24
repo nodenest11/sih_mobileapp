@@ -66,7 +66,12 @@ class _HomeScreenState extends State<HomeScreen> {
     });
 
     try {
-      final score = await _apiService.getSafetyScore(widget.tourist.id);
+      final touristIdInt = int.tryParse(widget.tourist.id);
+      if (touristIdInt == null) {
+        throw Exception('Invalid tourist ID format');
+      }
+      
+      final score = await _apiService.getSafetyScore(touristIdInt);
       setState(() {
         _safetyScore = score;
         _isLoadingSafetyScore = false;
@@ -92,7 +97,8 @@ class _HomeScreenState extends State<HomeScreen> {
     });
 
     try {
-      final alerts = await _apiService.getAlerts(widget.tourist.id);
+      final touristIdInt = int.tryParse(widget.tourist.id);
+      final alerts = await _apiService.getAlerts(touristIdInt);
       setState(() {
         _alerts = alerts;
         _isLoadingAlerts = false;
@@ -165,42 +171,51 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildHomeTab() {
     return Scaffold(
       appBar: AppBar(
-        title: Text('Hello, ${widget.tourist.name}!'),
-        backgroundColor: Colors.blue,
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Welcome back! 👋', style: TextStyle(fontSize: 16)),
+            Text('${widget.tourist.name}', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        backgroundColor: const Color(0xFF2196F3),
         foregroundColor: Colors.white,
         elevation: 0,
+        toolbarHeight: 70,
         actions: [
-          IconButton(
-            onPressed: _loadAlerts,
-            icon: Stack(
-              children: [
-                const Icon(Icons.notifications),
-                if (_alerts.where((alert) => !alert.isRead).isNotEmpty)
-                  Positioned(
-                    right: 0,
-                    top: 0,
-                    child: Container(
-                      padding: const EdgeInsets.all(2),
-                      decoration: BoxDecoration(
-                        color: Colors.red,
-                        borderRadius: BorderRadius.circular(6),
+          Stack(
+            children: [
+              IconButton(
+                onPressed: _loadAlerts,
+                icon: const Icon(Icons.notifications_outlined),
+                tooltip: 'View notifications',
+              ),
+              if (_alerts.where((alert) => !alert.isRead).isNotEmpty)
+                Positioned(
+                  right: 8,
+                  top: 8,
+                  child: Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: BoxDecoration(
+                      color: Colors.red,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    constraints: const BoxConstraints(
+                      minWidth: 18,
+                      minHeight: 18,
+                    ),
+                    child: Text(
+                      '${_alerts.where((alert) => !alert.isRead).length}',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
                       ),
-                      constraints: const BoxConstraints(
-                        minWidth: 12,
-                        minHeight: 12,
-                      ),
-                      child: Text(
-                        '${_alerts.where((alert) => !alert.isRead).length}',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 8,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
+                      textAlign: TextAlign.center,
                     ),
                   ),
-              ],
-            ),
+                ),
+            ],
           ),
         ],
       ),

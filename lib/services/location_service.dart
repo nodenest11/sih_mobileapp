@@ -155,18 +155,17 @@ class LocationService {
     if (_currentTouristId == null) return;
 
     try {
-      final locationData = LocationData(
-        touristId: _currentTouristId!,
+      final touristIdInt = int.tryParse(_currentTouristId!);
+      if (touristIdInt == null) {
+        _statusController.add('Invalid tourist ID format');
+        return;
+      }
+
+      await _apiService.updateLocation(
+        touristId: touristIdInt,
         latitude: position.latitude,
         longitude: position.longitude,
-        timestamp: DateTime.now(),
-        accuracy: position.accuracy,
-        altitude: position.altitude,
-        speed: position.speed,
-        heading: position.heading,
       );
-
-      await _apiService.updateLocation(locationData);
     } catch (e) {
       _statusController.add('Failed to update location to backend: $e');
     }

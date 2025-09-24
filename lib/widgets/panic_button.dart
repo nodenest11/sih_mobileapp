@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
 import '../services/location_service.dart';
-import '../models/alert.dart';
 
 class PanicButton extends StatefulWidget {
   final String touristId;
@@ -71,17 +70,17 @@ class _PanicButtonState extends State<PanicButton>
         throw Exception('Unable to get current location');
       }
 
-      // Create panic alert
-      final panicAlert = PanicAlert(
-        touristId: widget.touristId,
+      // Send panic alert to backend with new API signature
+      final touristIdInt = int.tryParse(widget.touristId);
+      if (touristIdInt == null) {
+        throw Exception('Invalid tourist ID');
+      }
+
+      final response = await _apiService.sendPanicAlert(
+        touristId: touristIdInt,
         latitude: position.latitude,
         longitude: position.longitude,
-        timestamp: DateTime.now(),
-        message: 'Emergency assistance requested',
       );
-
-      // Send panic alert to backend
-      final response = await _apiService.sendPanicAlert(panicAlert);
 
       if (response['success'] == true) {
         _showSuccessDialog(response['message'] ?? 'Panic alert sent successfully!');
