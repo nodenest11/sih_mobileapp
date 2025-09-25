@@ -1,37 +1,25 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+
 import 'screens/login_screen.dart';
-import 'services/background_location_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
-  // Initialize background service on app start
-  await _initializeBackgroundService();
-  
-  // Set preferred orientations
-  SystemChrome.setPreferredOrientations([
-    DeviceOrientation.portraitUp,
-    DeviceOrientation.portraitDown,
-  ]);
+  await _initializeApp();
   
   runApp(const TouristSafetyApp());
 }
 
-/// Initialize background service if user is already logged in
-Future<void> _initializeBackgroundService() async {
-  try {
-    final prefs = await SharedPreferences.getInstance();
-    final touristId = prefs.getString('tourist_id');
-    
-    // Only initialize background service if user is logged in
-    if (touristId != null && touristId.isNotEmpty) {
-      await BackgroundLocationService.initializeService();
-    }
-  } catch (e) {
-    print('Failed to initialize background service: $e');
-  }
+Future<void> _initializeApp() async {
+  // Set preferred orientations
+  await SystemChrome.setPreferredOrientations([
+    DeviceOrientation.portraitUp,
+    DeviceOrientation.portraitDown,
+  ]);
+  
+  // Don't initialize background service on app start to avoid crashes
+  // It will be initialized when user logs in and starts tracking
 }
 
 class TouristSafetyApp extends StatelessWidget {

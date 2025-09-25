@@ -26,6 +26,36 @@ class LocationService {
   Position? get lastKnownPosition => _lastKnownPosition;
   bool get isTracking => _positionSubscription != null || _updateTimer != null;
 
+  // Get current location with formatted address
+  Future<Map<String, dynamic>?> getCurrentLocationWithAddress() async {
+    try {
+      const LocationSettings locationSettings = LocationSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 10,
+      );
+
+      Position position = await Geolocator.getCurrentPosition(
+        locationSettings: locationSettings,
+      );
+
+      _lastKnownPosition = position;
+      
+      // Create a formatted location response
+      final locationInfo = {
+        'position': position,
+        'address': '${position.latitude.toStringAsFixed(6)}, ${position.longitude.toStringAsFixed(6)}',
+        'accuracy': '±${position.accuracy.round()}m',
+        'timestamp': DateTime.now(),
+      };
+
+      _statusController.add('Current location: ${locationInfo['address']}');
+      return locationInfo;
+    } catch (e) {
+      _statusController.add('Your location will be sharing');
+      return null;
+    }
+  }
+
   // Check and request all necessary permissions including background location
   Future<bool> checkAndRequestPermissions() async {
     bool serviceEnabled;
@@ -108,12 +138,21 @@ class LocationService {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('tourist_id', touristId);
     
+    _statusController.add('Initializing location services...');
+    
     final hasPermission = await checkAndRequestPermissions();
     if (!hasPermission) return;
 
-    _statusController.add('Starting location tracking...');
+    _statusController.add('Your location will be sharing');
 
     try {
+      // Get initial current location immediately
+      final currentPosition = await getCurrentLocation();
+      if (currentPosition != null) {
+        _statusController.add('Location sharing active');
+        _handleLocationUpdate(currentPosition);
+      }
+
       // Enable wake lock to prevent device from sleeping
       await WakelockPlus.enable();
       
@@ -131,10 +170,11 @@ class LocationService {
       ).listen(
         (Position position) {
           _lastKnownPosition = position;
+          _statusController.add('Location sharing active');
           _handleLocationUpdate(position);
         },
         onError: (error) {
-          _statusController.add('Location tracking error: $error');
+          _statusController.add('Location error: $error');
         },
       );
 
@@ -148,9 +188,8 @@ class LocationService {
         },
       );
 
-      _statusController.add('Location tracking started successfully with background service.');
     } catch (e) {
-      _statusController.add('Failed to start location tracking: $e');
+      _statusController.add('Failed to start tracking: $e');
     }
   }
 

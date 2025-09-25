@@ -148,7 +148,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   void _updatePolygons() {
     _polygons = _restrictedZones.map((zone) => Polygon(
       points: zone.polygonCoordinates,
-      color: _getZoneColor(zone.type).withOpacity(0.3),
+      color: _getZoneColor(zone.type).withValues(alpha: 0.3),
       borderColor: _getZoneColor(zone.type),
       borderStrokeWidth: 2.0,
     )).toList();
@@ -332,8 +332,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                 CircleLayer(
                   circles: _heatmapData.map((point) => CircleMarker(
                     point: point.latLng,
-                    color: Colors.red.withOpacity(point.intensity * 0.6),
-                    borderColor: Colors.red.withOpacity(point.intensity),
+                    color: Colors.red.withValues(alpha: point.intensity * 0.6),
+                    borderColor: Colors.red.withValues(alpha: point.intensity),
                     borderStrokeWidth: 1.0,
                     radius: 20 + (point.intensity * 30),
                   )).toList(),
@@ -360,7 +360,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                                 height: 60 * (1 + _pulseAnimation.value * 0.5),
                                 decoration: BoxDecoration(
                                   shape: BoxShape.circle,
-                                  color: Colors.blue.withOpacity(0.3 * (1 - _pulseAnimation.value)),
+                                  color: Colors.blue.withValues(alpha: 0.3 * (1 - _pulseAnimation.value)),
                               ),
                             ),
                             // Main marker

@@ -29,7 +29,9 @@ class _HomeScreenState extends State<HomeScreen> {
   List<Alert> _alerts = [];
   bool _isLoadingSafetyScore = false;
   bool _isLoadingAlerts = false;
-  String _locationStatus = 'Checking location...';
+  bool _isLoadingLocation = false;
+  String _locationStatus = 'Your location will be sharing';
+  Map<String, dynamic>? _currentLocationInfo;
 
   @override
   void initState() {
@@ -37,12 +39,31 @@ class _HomeScreenState extends State<HomeScreen> {
     _initializeServices();
     _loadSafetyScore();
     _loadAlerts();
+    _getCurrentLocation();
   }
 
   @override
   void dispose() {
     _locationService.dispose();
     super.dispose();
+  }
+
+  Future<void> _getCurrentLocation() async {
+    setState(() {
+      _isLoadingLocation = true;
+    });
+    
+    final locationInfo = await _locationService.getCurrentLocationWithAddress();
+    
+    setState(() {
+      _currentLocationInfo = locationInfo;
+      _isLoadingLocation = false;
+      if (locationInfo != null) {
+        _locationStatus = 'Location sharing active';
+      } else {
+        _locationStatus = 'Your location will be sharing';
+      }
+    });
   }
 
   Future<void> _initializeServices() async {
@@ -218,7 +239,7 @@ class _HomeScreenState extends State<HomeScreen> {
         _showErrorSnackBar('Failed to send emergency alert. Please try again.');
       }
     } catch (e) {
-      print('SOS Error: $e');
+      debugPrint('SOS Error: $e');
       _showErrorSnackBar('Emergency alert failed: ${e.toString()}');
     }
   }
@@ -339,37 +360,198 @@ class _HomeScreenState extends State<HomeScreen> {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            // Location Status
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: _locationService.isTracking ? Colors.green.shade50 : Colors.orange.shade50,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(
-                  color: _locationService.isTracking ? Colors.green.shade200 : Colors.orange.shade200,
+            // Current Location Card - Modern Design
+            Card(
+              elevation: 4,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              child: Container(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(16),
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      Colors.blue.shade50,
+                      Colors.indigo.shade50,
+                    ],
+                  ),
+                ),
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: Colors.blue.shade100,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Icon(
+                            Icons.my_location,
+                            color: Colors.blue.shade700,
+                            size: 24,
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Current Location',
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.grey.shade800,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                _locationStatus,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey.shade600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        if (_isLoadingLocation)
+                          SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation(Colors.blue.shade600),
+                            ),
+                          )
+                        else
+                          IconButton(
+                            onPressed: _getCurrentLocation,
+                            icon: Icon(
+                              Icons.refresh,
+                              color: Colors.blue.shade600,
+                            ),
+                            tooltip: 'Refresh Location',
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    if (_currentLocationInfo != null) ...[
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(12),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.grey.shade200,
+                              blurRadius: 4,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        child: Column(
+                          children: [
+                            Row(
+                              children: [
+                                Icon(Icons.location_on, color: Colors.red.shade400, size: 20),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    _currentLocationInfo!['address'],
+                                    style: TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w600,
+                                      color: Colors.grey.shade800,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            Row(
+                              children: [
+                                Icon(Icons.gps_fixed, color: Colors.green.shade400, size: 16),
+                                const SizedBox(width: 8),
+                                Text(
+                                  'Accuracy: ${_currentLocationInfo!['accuracy']}',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    color: Colors.grey.shade600,
+                                  ),
+                                ),
+                                const Spacer(),
+                                Icon(Icons.access_time, color: Colors.blue.shade400, size: 16),
+                                const SizedBox(width: 4),
+                                Text(
+                                  'Updated now',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey.shade600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ] else ...[
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: Colors.orange.shade50,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.orange.shade200),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.location_off, color: Colors.orange.shade600),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                'Location not available. Tap refresh to try again.',
+                                style: TextStyle(
+                                  color: Colors.orange.shade700,
+                                  fontSize: 14,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                    
+                    // Location Tracking Status
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Container(
+                          width: 8,
+                          height: 8,
+                          decoration: BoxDecoration(
+                            color: _locationService.isTracking ? Colors.green : Colors.orange,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          _locationService.isTracking ? 'Location tracking active' : 'Location tracking inactive',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                            color: _locationService.isTracking ? Colors.green.shade700 : Colors.orange.shade700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
               ),
-              child: Row(
-                children: [
-                  Icon(
-                    _locationService.isTracking ? Icons.location_on : Icons.location_off,
-                    color: _locationService.isTracking ? Colors.green.shade700 : Colors.orange.shade700,
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      _locationStatus,
-                      style: TextStyle(
-                        color: _locationService.isTracking ? Colors.green.shade700 : Colors.orange.shade700,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 20),
 
             // Safety Score Widget
             if (_isLoadingSafetyScore)
@@ -451,12 +633,12 @@ class _HomeScreenState extends State<HomeScreen> {
                     borderRadius: BorderRadius.circular(16),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.red.withOpacity(0.3),
+                        color: Colors.red.withValues(alpha: 0.3),
                         blurRadius: 12,
                         offset: const Offset(0, 4),
                       ),
                       BoxShadow(
-                        color: Colors.red.withOpacity(0.1),
+                        color: Colors.red.withValues(alpha: 0.1),
                         blurRadius: 20,
                         offset: const Offset(0, 8),
                       ),
@@ -468,7 +650,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       Container(
                         padding: const EdgeInsets.all(8),
                         decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.2),
+                          color: Colors.white.withValues(alpha: 0.2),
                           shape: BoxShape.circle,
                         ),
                         child: const Icon(

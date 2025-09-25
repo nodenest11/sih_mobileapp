@@ -127,97 +127,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  void _showLocationPermissionDialog() {
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('Location Permissions'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'This app requires location permissions to:',
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 8),
-              const Text('• Track your location for safety'),
-              const Text('• Send emergency alerts with your location'),
-              const Text('• Provide geo-fencing notifications'),
-              const Text('• Show your position on the map'),
-              const SizedBox(height: 16),
-              Text(
-                'Current Status: ${_getPermissionStatusText()}',
-                style: TextStyle(
-                  color: _getPermissionStatusColor(),
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Close'),
-            ),
-            if (!_isLocationEnabled())
-              ElevatedButton(
-                onPressed: () async {
-                  Navigator.of(context).pop();
-                  await _locationService.checkAndRequestPermissions();
-                  _loadLocationSettings();
-                },
-                child: const Text('Request Permission'),
-              ),
-          ],
-        );
-      },
-    );
-  }
-
-  String _getPermissionStatusText() {
-    if (_locationSettings['serviceEnabled'] == false) {
-      return 'Location services disabled';
-    }
-    
-    final permission = _locationSettings['permission'];
-    switch (permission) {
-      case 'whileInUse':
-      case 'always':
-        return 'Permission granted';
-      case 'denied':
-        return 'Permission denied';
-      case 'deniedForever':
-        return 'Permission permanently denied';
-      default:
-        return 'Unknown status';
-    }
-  }
-
-  Color _getPermissionStatusColor() {
-    if (_locationSettings['serviceEnabled'] == false) {
-      return Colors.red;
-    }
-    
-    final permission = _locationSettings['permission'];
-    switch (permission) {
-      case 'whileInUse':
-      case 'always':
-        return Colors.green;
-      case 'denied':
-      case 'deniedForever':
-        return Colors.red;
-      default:
-        return Colors.orange;
-    }
-  }
-
-  bool _isLocationEnabled() {
-    final permission = _locationSettings['permission'];
-    return permission == 'whileInUse' || permission == 'always';
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -468,9 +377,5 @@ class _ProfileScreenState extends State<ProfileScreen> {
         ),
       ],
     );
-  }
-
-  String _formatDateTime(DateTime dateTime) {
-    return '${dateTime.day}/${dateTime.month}/${dateTime.year} at ${dateTime.hour}:${dateTime.minute.toString().padLeft(2, '0')}';
   }
 }
