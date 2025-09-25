@@ -3,7 +3,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../services/api_service.dart';
 import '../models/tourist.dart';
 import 'home_screen.dart';
-import '../services/native_location_bridge.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -39,11 +38,9 @@ class _LoginScreenState extends State<LoginScreen> {
     final prefs = await SharedPreferences.getInstance();
     final touristId = prefs.getString('tourist_id');
     final name = prefs.getString('tourist_name');
-    debugPrint('[Login] Checking existing user touristId=$touristId name=$name');
     
     if (touristId != null && name != null) {
       // User already logged in, navigate to home
-      NativeLocationBridge.start();
       if (mounted) {
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(
@@ -78,7 +75,6 @@ class _LoginScreenState extends State<LoginScreen> {
 
       if (response['success'] == true) {
         final touristData = response['tourist'];
-        debugPrint('[Login] Registration success id=${touristData['id']} name=${_nameController.text.trim()}');
         
         // Save user data locally
         final prefs = await SharedPreferences.getInstance();
@@ -106,8 +102,6 @@ class _LoginScreenState extends State<LoginScreen> {
             ),
           );
         }
-        // Start native foreground location updates (always-on)
-        NativeLocationBridge.start();
       } else {
         _showErrorDialog(response['message'] ?? 'Registration failed');
       }

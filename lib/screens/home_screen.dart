@@ -1,22 +1,26 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
+import 'dart:async';
 import '../models/tourist.dart';
 import '../models/location.dart';
 import '../models/alert.dart';
 import '../services/api_service.dart';
 import '../services/location_service.dart';
 import '../services/panic_service.dart';
+// import 'panic_result_screen.dart'; // No longer needed directly; result navigation handled via countdown screen
+import 'panic_countdown_screen.dart';
 import '../widgets/safety_score_widget.dart';
 import 'map_screen.dart';
 import 'profile_screen.dart';
-import 'panic_alert_screen.dart';
+import '../theme/app_theme.dart';
+import '../widgets/sos_button.dart';
 
 class HomeScreen extends StatefulWidget {
   final Tourist tourist;
 
-  const HomeScreen({super.key, required this.tourist});
+  const HomeScreen({
+    super.key,
+    required this.tourist,
+  });
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -27,18 +31,17 @@ class _HomeScreenState extends State<HomeScreen> {
   final ApiService _apiService = ApiService();
   final LocationService _locationService = LocationService();
   final PanicService _panicService = PanicService();
-
+  
   SafetyScore? _safetyScore;
   List<Alert> _alerts = [];
   bool _isLoadingSafetyScore = false;
   bool _isLoadingAlerts = false;
   bool _isLoadingLocation = false;
-  bool _isSendingPanic = false;
   String _locationStatus = 'Your location will be sharing';
   Map<String, dynamic>? _currentLocationInfo;
-  Duration? _panicCooldownRemaining;
-  DateTime? _lastPanicTriggeredAt;
-  Timer? _panicCooldownTimer;
+  bool _panicCooldownActive = false;
+  Duration _panicRemaining = Duration.zero;
+  Timer? _panicTimer;
 
   @override
   void initState() {
@@ -47,13 +50,12 @@ class _HomeScreenState extends State<HomeScreen> {
     _loadSafetyScore();
     _loadAlerts();
     _getCurrentLocation();
-    _refreshPanicCooldown();
   }
 
   @override
   void dispose() {
+    _panicTimer?.cancel();
     _locationService.dispose();
-    _panicCooldownTimer?.cancel();
     super.dispose();
   }
 
@@ -61,9 +63,9 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() {
       _isLoadingLocation = true;
     });
-
+    
     final locationInfo = await _locationService.getCurrentLocationWithAddress();
-
+    
     setState(() {
       _currentLocationInfo = locationInfo;
       _isLoadingLocation = false;
@@ -78,12 +80,48 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _initializeServices() async {
     // Start location tracking
     await _locationService.startTracking(widget.tourist.id);
-
+    
     // Listen to location status updates
     _locationService.statusStream.listen((status) {
       if (mounted) {
         setState(() {
           _locationStatus = status;
+        });
+      }
+    });
+    _initPanicCooldownWatcher();
+  }
+
+  Future<void> _initPanicCooldownWatcher() async {
+    // Initialize cooldown state
+    final cooling = await _panicService.isCoolingDown();
+    if (cooling) {
+      final remaining = await _panicService.remaining();
+      if (mounted) {
+        setState(() {
+          _panicCooldownActive = true;
+          _panicRemaining = remaining;
+        });
+      }
+      _startPanicTicker();
+    }
+  }
+
+  void _startPanicTicker() {
+    _panicTimer?.cancel();
+    _panicTimer = Timer.periodic(const Duration(seconds: 1), (t) async {
+      final remaining = await _panicService.remaining();
+      if (!mounted) return;
+      if (remaining == Duration.zero) {
+        setState(() {
+          _panicCooldownActive = false;
+          _panicRemaining = Duration.zero;
+        });
+        _panicTimer?.cancel();
+      } else {
+        setState(() {
+          _panicCooldownActive = true;
+          _panicRemaining = remaining;
         });
       }
     });
@@ -99,7 +137,7 @@ class _HomeScreenState extends State<HomeScreen> {
       if (touristIdInt == null) {
         throw Exception('Invalid tourist ID format');
       }
-
+      
       final score = await _apiService.getSafetyScore(touristIdInt);
       setState(() {
         _safetyScore = score;
@@ -145,230 +183,37 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  Future<void> _refreshPanicCooldown() async {
-    final last = await _panicService.getLastPanicTime();
-    final remaining = await _panicService.cooldownRemaining();
-
-    if (!mounted) return;
-
-    setState(() {
-      _lastPanicTriggeredAt = last;
-      _panicCooldownRemaining = remaining;
-    });
-
-    if (remaining != null) {
-      _startCooldownTimer();
-    } else {
-      _stopCooldownTimer();
-    }
-  }
-
-  void _startCooldownTimer() {
-    _panicCooldownTimer?.cancel();
-    _panicCooldownTimer = Timer.periodic(const Duration(seconds: 30), (
-      _,
-    ) async {
-      final remaining = await _panicService.cooldownRemaining();
-      if (!mounted) return;
-
-      if (remaining == null) {
-        _panicCooldownTimer?.cancel();
-      }
-
-      setState(() {
-        _panicCooldownRemaining = remaining;
-      });
-    });
-  }
-
-  void _stopCooldownTimer() {
-    _panicCooldownTimer?.cancel();
-    _panicCooldownTimer = null;
-  }
-
-  String _formatCooldown(Duration duration) {
-    final hours = duration.inHours;
-    final minutes = duration.inMinutes % 60;
-    if (hours > 0) {
-      return '${hours}h ${minutes}m';
-    }
-    if (minutes > 0) {
-      final seconds = duration.inSeconds % 60;
-      return '${minutes}m ${seconds}s';
-    }
-    return '${duration.inSeconds}s';
-  }
-
-  String? _formattedLastPanicTime() {
-    if (_lastPanicTriggeredAt == null) return null;
-    return DateFormat('MMM d, h:mm a').format(_lastPanicTriggeredAt!);
-  }
+  // _onPanicSent removed; feedback handled inside countdown/result screens.
 
   Future<void> _handleSOSPress() async {
-    if (_isSendingPanic) {
+    if (_panicCooldownActive) {
+      _showErrorSnackBar('SOS already sent. Try again in ${_panicRemaining.inMinutes}m');
       return;
     }
-
-    if (_panicCooldownRemaining != null) {
-      _showCooldownSnackBar(_panicCooldownRemaining!);
+    final touristIdInt = int.tryParse(widget.tourist.id);
+    if (touristIdInt == null) {
+      _showErrorSnackBar('Invalid tourist ID');
       return;
     }
-
-    // Show confirmation dialog
-    final confirmed = await showDialog<bool>(
-      context: context,
-      barrierDismissible: false,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: Row(
-            children: [
-              Icon(Icons.warning, color: Colors.red.shade600),
-              const SizedBox(width: 8),
-              const Text(
-                'Emergency SOS',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  color: Colors.red,
-                ),
-              ),
-            ],
-          ),
-          content: const Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Are you in immediate danger?',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-              ),
-              SizedBox(height: 8),
-              Text(
-                'This will send your current location to emergency services immediately.',
-                style: TextStyle(fontSize: 14),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: Text(
-                'Cancel',
-                style: TextStyle(color: Colors.grey.shade600),
-              ),
-            ),
-            ElevatedButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.red,
-                foregroundColor: Colors.white,
-              ),
-              child: const Text(
-                'Send SOS',
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
-            ),
-          ],
-        );
-      },
-    );
-
-    if (confirmed != true) return;
-
-    try {
-      final canTrigger = await _panicService.canTriggerPanic();
-      if (!canTrigger) {
-        final remaining = await _panicService.cooldownRemaining();
-        if (remaining != null) {
-          _showCooldownSnackBar(remaining);
-        }
-        return;
-      }
-
-      if (mounted) {
-        setState(() {
-          _isSendingPanic = true;
-        });
-      }
-
-      // Get current location
-      final position = await _locationService.getCurrentLocation();
-      if (position == null) {
-        _showErrorSnackBar(
-          'Unable to get your current location. Please enable location services.',
-        );
-        if (mounted) {
-          setState(() {
-            _isSendingPanic = false;
-          });
-        }
-        return;
-      }
-
-      // Send panic alert to backend
-      final touristIdInt = int.tryParse(widget.tourist.id);
-      if (touristIdInt == null) {
-        _showErrorSnackBar('Invalid tourist ID');
-        if (mounted) {
-          setState(() {
-            _isSendingPanic = false;
-          });
-        }
-        return;
-      }
-
-      final response = await _apiService.sendPanicAlert(
-        touristId: touristIdInt,
-        latitude: position.latitude,
-        longitude: position.longitude,
-      );
-
-      if (response['success'] == true) {
-        final triggeredAt = DateTime.now();
-        await _panicService.recordPanicTrigger(triggeredAt);
-        if (mounted) {
-          setState(() {
-            _lastPanicTriggeredAt = triggeredAt;
-          });
-        }
-        await _refreshPanicCooldown();
-        _loadAlerts();
-
-        if (mounted) {
-          Navigator.of(context).push(
-            MaterialPageRoute(
-              builder: (context) => PanicAlertScreen(
-                tourist: widget.tourist,
-                triggeredAt: triggeredAt,
-                cooldown: PanicService.cooldownDuration,
-              ),
-            ),
-          );
-        }
-      } else {
-        _showErrorSnackBar('Failed to send emergency alert. Please try again.');
-      }
-    } catch (e) {
-      debugPrint('SOS Error: $e');
-      _showErrorSnackBar('Emergency alert failed: ${e.toString()}');
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isSendingPanic = false;
-        });
-      }
-    }
-  }
-
-  void _showCooldownSnackBar(Duration remaining) {
-    final message =
-        'Panic alert already active. Try again in ${_formatCooldown(remaining)}.';
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: Colors.orange,
-        duration: const Duration(seconds: 4),
+    // Navigate to countdown screen which will handle sending automatically after grace period.
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => PanicCountdownScreen(touristId: touristIdInt),
       ),
-    );
+    ).then((_) async {
+      // After returning (either cancelled or sent) refresh cooldown + alerts state
+      final cooling = await _panicService.isCoolingDown();
+      if (!mounted) return;
+      if (cooling) {
+        final remaining = await _panicService.remaining();
+        setState(() {
+          _panicCooldownActive = true;
+          _panicRemaining = remaining;
+        });
+        _startPanicTicker();
+        _loadAlerts();
+      }
+    });
   }
 
   void _showErrorSnackBar(String message) {
@@ -395,7 +240,10 @@ class _HomeScreenState extends State<HomeScreen> {
     ];
 
     return Scaffold(
-      body: IndexedStack(index: _currentIndex, children: screens),
+      body: IndexedStack(
+        index: _currentIndex,
+        children: screens,
+      ),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentIndex,
         onTap: _onTabTapped,
@@ -403,9 +251,18 @@ class _HomeScreenState extends State<HomeScreen> {
         selectedItemColor: Colors.blue,
         unselectedItemColor: Colors.grey,
         items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
-          BottomNavigationBarItem(icon: Icon(Icons.map), label: 'Map'),
-          BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Profile'),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.home),
+            label: 'Home',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.map),
+            label: 'Map',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.person),
+            label: 'Profile',
+          ),
         ],
       ),
     );
@@ -467,213 +324,16 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       body: RefreshIndicator(
         onRefresh: () async {
-          await Future.wait([_loadSafetyScore(), _loadAlerts()]);
+          await Future.wait([
+            _loadSafetyScore(),
+            _loadAlerts(),
+          ]);
         },
         child: ListView(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
           children: [
-            // Current Location Card - Modern Design
-            Card(
-              elevation: 0,
-              color: const Color(0xFFF7F9FF),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(18),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(10),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(14),
-                            border: Border.all(color: Colors.blue.shade100),
-                          ),
-                          child: Icon(
-                            Icons.my_location,
-                            color: Colors.blue.shade700,
-                            size: 24,
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Current Location',
-                                style: TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.grey.shade800,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                _locationStatus,
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.grey.shade600,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        if (_isLoadingLocation)
-                          SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              valueColor: AlwaysStoppedAnimation(
-                                Colors.blue.shade600,
-                              ),
-                            ),
-                          )
-                        else
-                          IconButton(
-                            onPressed: _getCurrentLocation,
-                            icon: Icon(
-                              Icons.refresh,
-                              color: Colors.blue.shade600,
-                            ),
-                            tooltip: 'Refresh Location',
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    if (_currentLocationInfo != null) ...[
-                      Container(
-                        padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(14),
-                          border: Border.all(color: Colors.grey.shade200),
-                        ),
-                        child: Column(
-                          children: [
-                            Row(
-                              children: [
-                                Icon(
-                                  Icons.location_on,
-                                  color: Colors.red.shade400,
-                                  size: 20,
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Text(
-                                    _currentLocationInfo!['address'],
-                                    style: TextStyle(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.w600,
-                                      color: Colors.grey.shade800,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 8),
-                            Row(
-                              children: [
-                                Icon(
-                                  Icons.gps_fixed,
-                                  color: Colors.green.shade400,
-                                  size: 16,
-                                ),
-                                const SizedBox(width: 8),
-                                Text(
-                                  'Accuracy: ${_currentLocationInfo!['accuracy']}',
-                                  style: TextStyle(
-                                    fontSize: 14,
-                                    color: Colors.grey.shade600,
-                                  ),
-                                ),
-                                const Spacer(),
-                                Icon(
-                                  Icons.access_time,
-                                  color: Colors.blue.shade400,
-                                  size: 16,
-                                ),
-                                const SizedBox(width: 4),
-                                Text(
-                                  'Updated now',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.grey.shade600,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                    ] else ...[
-                      Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: Colors.orange.shade200),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(
-                              Icons.location_off,
-                              color: Colors.orange.shade600,
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Text(
-                                'Location not available. Tap refresh to try again.',
-                                style: TextStyle(
-                                  color: Colors.orange.shade700,
-                                  fontSize: 14,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-
-                    // Location Tracking Status
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Container(
-                          width: 8,
-                          height: 8,
-                          decoration: BoxDecoration(
-                            color: _locationService.isTracking
-                                ? Colors.green
-                                : Colors.orange,
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          _locationService.isTracking
-                              ? 'Location tracking active'
-                              : 'Location tracking inactive',
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w500,
-                            color: _locationService.isTracking
-                                ? Colors.green.shade700
-                                : Colors.orange.shade700,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 20),
+            _buildLocationCard(),
+            const SizedBox(height: 18),
 
             // Safety Score Widget
             if (_isLoadingSafetyScore)
@@ -689,280 +349,217 @@ class _HomeScreenState extends State<HomeScreen> {
                 onRefresh: _loadSafetyScore,
               ),
 
-            // Quick Actions
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
+            _buildQuickActions(),
+
+            // Emergency SOS Button
+            _buildSosSection(),
+
+            if (_alerts.isNotEmpty) _buildAlertsSection(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLocationCard() {
+    final trackingActive = _locationService.isTracking;
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: AppColors.greyLight,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade100,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(Icons.my_location, color: Colors.blue.shade700),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
-                      'Quick Actions',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                      children: [
-                        _buildQuickActionButton(
-                          icon: Icons.map_outlined,
-                          label: 'Map View',
-                          onTap: () => _onTabTapped(1),
-                        ),
-                        _buildQuickActionButton(
-                          icon: Icons.search_outlined,
-                          label: 'Search',
-                          onTap: () => _onTabTapped(1),
-                        ),
-                        _buildQuickActionButton(
-                          icon: Icons.refresh_outlined,
-                          label: 'Refresh',
-                          onTap: () async {
-                            await Future.wait([
-                              _loadSafetyScore(),
-                              _loadAlerts(),
-                            ]);
-                          },
-                        ),
-                      ],
+                    Text('Location', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Colors.grey.shade900)),
+                    const SizedBox(height: 2),
+                    Text(
+                      _locationStatus,
+                      style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                     ),
                   ],
                 ),
               ),
-            ),
-
-            // Emergency SOS Button
-            Container(
-              margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              child: Material(
-                color: _panicCooldownRemaining != null
-                    ? const Color(0xFFE57373)
-                    : const Color(0xFFD32F2F),
-                borderRadius: BorderRadius.circular(20),
-                child: InkWell(
-                  onTap: () {
-                    if (_isSendingPanic) return;
-                    if (_panicCooldownRemaining != null) {
-                      _showCooldownSnackBar(_panicCooldownRemaining!);
-                      return;
-                    }
-                    _handleSOSPress();
-                  },
-                  borderRadius: BorderRadius.circular(20),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 22,
-                      vertical: 22,
+              _isLoadingLocation
+                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                  : IconButton(
+                      onPressed: _getCurrentLocation,
+                      icon: Icon(Icons.refresh, color: Colors.blue.shade600),
+                      tooltip: 'Refresh',
                     ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.center,
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: Colors.white.withValues(alpha: 0.15),
-                                borderRadius: BorderRadius.circular(14),
-                              ),
-                              child: const Icon(
-                                Icons.emergency,
-                                color: Colors.white,
-                                size: 30,
-                              ),
-                            ),
-                            const SizedBox(width: 18),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    _isSendingPanic
-                                        ? 'Sending emergency alert'
-                                        : 'Emergency SOS',
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 20,
-                                      fontWeight: FontWeight.w700,
-                                      letterSpacing: 0.6,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 6),
-                                  Text(
-                                    _panicCooldownRemaining != null
-                                        ? 'Available again in ${_formatCooldown(_panicCooldownRemaining!)}'
-                                        : 'Share your live location with authorities instantly.',
-                                    style: const TextStyle(
-                                      color: Colors.white70,
-                                      fontSize: 13,
-                                      height: 1.5,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            if (_panicCooldownRemaining != null)
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 12,
-                                  vertical: 6,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: Colors.white.withValues(alpha: 0.15),
-                                  borderRadius: BorderRadius.circular(30),
-                                ),
-                                child: Row(
-                                  children: const [
-                                    Icon(Icons.lock_clock, size: 16, color: Colors.white),
-                                    SizedBox(width: 6),
-                                    Text(
-                                      'Cooling down',
-                                      style: TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                          ],
-                        ),
-                        const SizedBox(height: 18),
-                        if (_isSendingPanic)
-                          Row(
-                            children: const [
-                              SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  valueColor: AlwaysStoppedAnimation<Color>(
-                                    Colors.white,
-                                  ),
-                                ),
-                              ),
-                              SizedBox(width: 12),
-                              Text(
-                                'Sharing your location with the command center…',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ],
-                          )
-                        else
-                          Text(
-                            'Use responsibly. False triggers impact real-time response teams.',
-                            style: TextStyle(
-                              color: Colors.white.withValues(alpha: 0.85),
-                              fontSize: 12,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            if (_formattedLastPanicTime() != null)
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Text(
-                  'Last SOS sent ${_formattedLastPanicTime()}',
-                  style: TextStyle(
-                    color: Colors.grey.shade600,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ),
-
-            // Recent Alerts
-            if (_alerts.isNotEmpty) ...[
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text(
-                            'Recent Alerts',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          if (_isLoadingAlerts)
-                            const SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      ..._alerts.take(3).map((alert) => _buildAlertTile(alert)),
-                      if (_alerts.length > 3)
-                        TextButton(
-                          onPressed: _showAllAlertsDialog,
-                          child: Text('View all ${_alerts.length} alerts'),
-                        ),
-                    ],
-                  ),
-                ),
-              ),
             ],
-          ],
+          ),
+          const SizedBox(height: 14),
+          if (_currentLocationInfo != null)
+            Text(
+              _currentLocationInfo!['address'],
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.grey.shade800, height: 1.3),
+            )
+          else
+            Text(
+              'No address available',
+              style: TextStyle(fontSize: 13, color: Colors.orange.shade700),
+            ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Container(
+                width: 8,
+                height: 8,
+                decoration: BoxDecoration(
+                  color: trackingActive ? Colors.green : Colors.orange,
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: 6),
+              Text(
+                trackingActive ? 'Tracking active' : 'Tracking inactive',
+                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: trackingActive ? Colors.green.shade700 : Colors.orange.shade700),
+              ),
+              const Spacer(),
+              if (_currentLocationInfo != null)
+                Text(
+                  'Accuracy ${_currentLocationInfo!['accuracy']}',
+                  style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildQuickActions() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        _quickActionPill(Icons.map_outlined, 'Map', () => _onTabTapped(1)),
+        _quickActionPill(Icons.search_outlined, 'Search', () => _onTabTapped(1)),
+        _quickActionPill(Icons.refresh_outlined, 'Refresh', () async {
+          await Future.wait([
+            _loadSafetyScore(),
+            _loadAlerts(),
+          ]);
+        }),
+      ],
+    );
+  }
+
+  Widget _quickActionPill(IconData icon, String label, VoidCallback onTap) {
+    return Expanded(
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Container(
+          margin: const EdgeInsets.symmetric(horizontal: 4),
+          padding: const EdgeInsets.symmetric(vertical: 14),
+          decoration: BoxDecoration(
+            color: AppColors.greyLight,
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 22, color: Colors.blue.shade700),
+              const SizedBox(height: 6),
+              Text(label, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
+            ],
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildQuickActionButton({
-    required IconData icon,
-    required String label,
-    required VoidCallback onTap,
-  }) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
-      child: Container(
-        width: 80,
-        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
-        decoration: BoxDecoration(
-          color: Colors.grey.shade100,
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
+  Widget _buildAlertsSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
           children: [
-            Icon(icon, color: const Color(0xFF1565C0), size: 24),
-            const SizedBox(height: 8),
-            Text(
-              label,
-              style: const TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
-                color: Color(0xFF333333),
-              ),
-              textAlign: TextAlign.center,
-            ),
+            const Text('Alerts', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+            const SizedBox(width: 8),
+            if (_isLoadingAlerts) const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2)),
+            const Spacer(),
+            if (_alerts.length > 3)
+              TextButton(onPressed: _showAllAlertsDialog, child: Text('View all (${_alerts.length})')),
           ],
         ),
+        const SizedBox(height: 8),
+        ..._alerts.take(3).map((a) => _alertRow(a)).toList(),
+      ],
+    );
+  }
+
+  Widget _alertRow(Alert alert) {
+    final color = _getAlertColor(alert.severity);
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      decoration: const BoxDecoration(
+        border: Border(bottom: BorderSide(color: Color(0xFFE0E0E0), width: 1)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 10,
+            height: 10,
+            margin: const EdgeInsets.only(top: 4),
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        alert.title,
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: alert.isRead ? FontWeight.w500 : FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                    Text(
+                      _formatTime(alert.timestamp),
+                      style: const TextStyle(fontSize: 11, color: Colors.grey),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  alert.message,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 12, color: Colors.black87, height: 1.3),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
+
+  // Removed legacy _buildQuickActionButton after redesign.
 
   Widget _buildAlertTile(Alert alert) {
     return ListTile(
@@ -1075,7 +672,10 @@ class _HomeScreenState extends State<HomeScreen> {
                   padding: EdgeInsets.all(16),
                   child: Text(
                     'All Alerts',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
                 const Divider(),
@@ -1100,6 +700,24 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         );
       },
+    );
+  }
+
+  Widget _buildSosSection() {
+    final disabled = _panicCooldownActive;
+    final remainingText = _panicRemaining.inMinutes > 0
+        ? '${_panicRemaining.inMinutes}m'
+        : _panicRemaining.inSeconds > 0
+            ? '${_panicRemaining.inSeconds}s'
+            : 'Ready';
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 20),
+      child: SosButton(
+        disabled: disabled,
+        onTap: _handleSOSPress,
+        title: disabled ? 'COOLDOWN' : 'EMERGENCY SOS',
+        subtitle: disabled ? 'Next in $remainingText' : 'Tap – 10s cancel window',
+      ),
     );
   }
 }

@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
@@ -10,14 +9,12 @@ import 'api_service.dart';
 import 'background_location_service.dart';
 
 class LocationService {
-  static const int _locationUpdateInterval = 60; // seconds
-  static const String _logTag = '[LocationService]';
+  static const int _locationUpdateInterval = 10; // seconds
   
   final ApiService _apiService = ApiService();
   StreamSubscription<Position>? _positionSubscription;
   Timer? _updateTimer;
   String? _currentTouristId;
-  bool _backgroundServiceRunning = false;
   
   Position? _lastKnownPosition;
   final StreamController<LocationData> _locationController = StreamController<LocationData>.broadcast();
@@ -27,14 +24,7 @@ class LocationService {
   Stream<String> get statusStream => _statusController.stream;
 
   Position? get lastKnownPosition => _lastKnownPosition;
-  bool get isTracking =>
-      _backgroundServiceRunning || _positionSubscription != null || _updateTimer != null;
-
-  void _log(String message) {
-    if (kDebugMode) {
-      debugPrint('$_logTag $message');
-    }
-  }
+  bool get isTracking => _positionSubscription != null || _updateTimer != null;
 
   // Get current location with formatted address
   Future<Map<String, dynamic>?> getCurrentLocationWithAddress() async {
@@ -59,11 +49,9 @@ class LocationService {
       };
 
       _statusController.add('Current location: ${locationInfo['address']}');
-      _log('Fetched current location ${locationInfo['address']} accuracy ${position.accuracy}m.');
       return locationInfo;
     } catch (e) {
       _statusController.add('Your location will be sharing');
-      _log('Failed to fetch current location: $e');
       return null;
     }
   }
@@ -115,7 +103,6 @@ class LocationService {
     }
 
     _statusController.add('Location permissions granted.');
-    _log('Permissions granted (serviceEnabled=$serviceEnabled, locationPermission=$locationPermission).');
     return true;
   }
 
@@ -135,7 +122,6 @@ class LocationService {
       return position;
     } catch (e) {
       _statusController.add('Failed to get current location: $e');
-      _log('Failed to get current location: $e');
       return null;
     }
   }
@@ -152,8 +138,7 @@ class LocationService {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('tourist_id', touristId);
     
-  _statusController.add('Initializing location services...');
-  _log('startTracking invoked for touristId=$touristId.');
+    _statusController.add('Initializing location services...');
     
     final hasPermission = await checkAndRequestPermissions();
     if (!hasPermission) return;
@@ -166,17 +151,13 @@ class LocationService {
       if (currentPosition != null) {
         _statusController.add('Location sharing active');
         _handleLocationUpdate(currentPosition);
-        _log('Initial location lat=${currentPosition.latitude}, lng=${currentPosition.longitude}.');
       }
 
       // Enable wake lock to prevent device from sleeping
       await WakelockPlus.enable();
-      _log('Wakelock enabled.');
       
       // Initialize and start background location service
-      _backgroundServiceRunning =
-          await BackgroundLocationService.initializeService();
-      _log('Background service running: $_backgroundServiceRunning.');
+      await BackgroundLocationService.initializeService();
       
       const LocationSettings locationSettings = LocationSettings(
         accuracy: LocationAccuracy.high,
@@ -191,30 +172,24 @@ class LocationService {
           _lastKnownPosition = position;
           _statusController.add('Location sharing active');
           _handleLocationUpdate(position);
-          _log('Foreground update lat=${position.latitude}, lng=${position.longitude}, acc=${position.accuracy}.');
         },
         onError: (error) {
           _statusController.add('Location error: $error');
-          _log('Foreground stream error: $error');
         },
       );
 
-      // Set up periodic updates to backend (every 60 seconds)
+      // Set up periodic updates to backend (every 10 seconds)
       _updateTimer = Timer.periodic(
         const Duration(seconds: _locationUpdateInterval),
         (timer) {
           if (_lastKnownPosition != null) {
             _sendLocationToBackend(_lastKnownPosition!);
-            _log('Foreground timer triggered backend update.');
-          } else {
-            _log('Foreground timer fired with no lastKnownPosition.');
           }
         },
       );
 
     } catch (e) {
       _statusController.add('Failed to start tracking: $e');
-      _log('Failed to start tracking: $e');
     }
   }
 
@@ -228,14 +203,11 @@ class LocationService {
     
     // Disable wake lock
     await WakelockPlus.disable();
-    _log('Wakelock disabled.');
     
     // Stop background service
     await BackgroundLocationService.stopService();
-    _backgroundServiceRunning = false;
     
     _statusController.add('Location tracking and background service stopped.');
-    _log('Tracking stopped; background service flag cleared.');
   }
 
   // Handle location update
@@ -254,7 +226,6 @@ class LocationService {
     );
 
     _locationController.add(locationData);
-    _log('Emitted LocationData lat=${position.latitude}, lng=${position.longitude}, speed=${position.speed}.');
   }
 
   // Send location update to backend
@@ -273,10 +244,8 @@ class LocationService {
         latitude: position.latitude,
         longitude: position.longitude,
       );
-      _log('Sent backend update lat=${position.latitude}, lng=${position.longitude}.');
     } catch (e) {
       _statusController.add('Failed to update location to backend: $e');
-      _log('Failed to update location to backend: $e');
     }
   }
 

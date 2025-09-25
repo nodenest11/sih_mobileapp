@@ -64,14 +64,6 @@
             android:foregroundServiceType="location"
             android:isolatedProcess="false"
             tools:replace="android:exported" />
-
-        <!-- Native Always-On Foreground Location Service -->
-        <service
-            android:name="com.example.mobile.NativeLocationService"
-            android:enabled="true"
-            android:exported="false"
-            android:foregroundServiceType="location"
-            android:stopWithTask="false" />
             
         <!-- Boot Receiver to restart service -->
         <receiver android:name="id.flutter.flutter_background_service.BootReceiver"
@@ -84,18 +76,6 @@
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
                 <action android:name="android.intent.action.PACKAGE_REPLACED" />
                 <category android:name="android.intent.category.DEFAULT" />
-            </intent-filter>
-        </receiver>
-
-        <!-- Boot receiver to relaunch native location service -->
-        <receiver android:name="com.example.mobile.BootStartupReceiver"
-            android:enabled="true"
-            android:exported="true"
-            android:directBootAware="true">
-            <intent-filter>
-                <action android:name="android.intent.action.BOOT_COMPLETED" />
-                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
-                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
         

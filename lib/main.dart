@@ -5,13 +5,10 @@ import 'screens/login_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  debugPrint('[App] Widgets binding initialized.');
   
   await _initializeApp();
-  debugPrint('[App] _initializeApp completed.');
   
   runApp(const TouristSafetyApp());
-  debugPrint('[App] runApp invoked.');
 }
 
 Future<void> _initializeApp() async {

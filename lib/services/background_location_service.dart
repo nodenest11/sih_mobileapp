@@ -12,124 +12,69 @@ import 'persistent_notification_manager.dart';
 class BackgroundLocationService {
   static const String _notificationChannelId = 'location_tracking_channel';
   static const int _notificationId = 1;
-  static const String _logTag = '[BackgroundLocation]';
   
   // Battery-optimized location settings
   static const LocationSettings _locationSettings = LocationSettings(
-    accuracy: LocationAccuracy.high,
-    distanceFilter: 10, // Update only if moved 10+ meters
+    accuracy: LocationAccuracy.medium,
+    distanceFilter: 15, // Update only if moved 15+ meters
   );
 
-  static bool _isConfigured = false;
-  static StreamSubscription<Position>? _positionSubscription;
-
-  static void _log(String message) {
-    if (kDebugMode) {
-      debugPrint('$_logTag $message');
-    }
-  }
-
   /// Initialize the background service with optimized settings
-  static Future<bool> initializeService() async {
+  static Future<void> initializeService() async {
     try {
       final service = FlutterBackgroundService();
 
-      if (!_isConfigured) {
-        // Initialize notification channel only from main isolate; guard exceptions.
-        try {
-          await PersistentNotificationManager.initialize();
-        } catch (e) {
-          _log('Warning: notification init failed in main isolate context: $e');
-        }
-
-        await service.configure(
-          androidConfiguration: AndroidConfiguration(
-            onStart: onStart,
-            autoStart: true,
-            autoStartOnBoot: true,
-            isForegroundMode: true,
-            notificationChannelId: _notificationChannelId,
-            initialNotificationTitle: 'Tourist Safety App',
-            initialNotificationContent: 'Location tracking is active',
-            foregroundServiceNotificationId: _notificationId,
-          ),
-          iosConfiguration: IosConfiguration(
-            autoStart: true,
-            onForeground: onStart,
-            onBackground: onIosBackground,
-          ),
-        );
-
-        _isConfigured = true;
-        _log('Service configured (autoStart: true, autoStartOnBoot: true).');
-      }
-
-      final isRunning = await service.isRunning();
-      if (!isRunning) {
-        try { await PersistentNotificationManager.startPersistentNotification(); } catch (_) {}
-        await service.startService();
-        _log('Foreground service started.');
-      } else {
-        try { await PersistentNotificationManager.startPersistentNotification(); } catch (_) {}
-        _log('Foreground service already running; ensured persistent notification.');
-      }
-
-      return await service.isRunning();
+      // Initialize notification manager first
+      await PersistentNotificationManager.initialize();
+      
+      await service.configure(
+        androidConfiguration: AndroidConfiguration(
+          onStart: onStart,
+          autoStart: false,
+          isForegroundMode: true,
+          notificationChannelId: _notificationChannelId,
+          initialNotificationTitle: 'Tourist Safety App',
+          initialNotificationContent: 'Location tracking is active',
+          foregroundServiceNotificationId: _notificationId,
+        ),
+        iosConfiguration: IosConfiguration(
+          autoStart: false,
+          onForeground: onStart,
+          onBackground: onIosBackground,
+        ),
+      );
+      
+      // Start the persistent notification after service is configured
+      await PersistentNotificationManager.startPersistentNotification();
+      
+      service.startService();
     } catch (e) {
-      _log('Failed to initialize background service: $e');
-      return false;
+      if (kDebugMode) {
+        debugPrint('Failed to initialize background service: $e');
+      }
     }
   }
 
   /// Main service entry point - optimized for battery efficiency
+  @pragma('vm:entry-point')
   /// Entry point for the background service
   @pragma('vm:entry-point')
   static void onStart(ServiceInstance service) async {
     DartPluginRegistrant.ensureInitialized();
 
-    if (service is AndroidServiceInstance) {
-      service.setAsForegroundService();
-    }
-    // Avoid initializing plugins that are not background-safe; attempt a silent notification update.
-    try {
-      await PersistentNotificationManager.startPersistentNotification();
-      _log('onStart invoked; persistent notification ensured.');
-    } catch (e) {
-      _log('Notification call in background isolate failed (safe to ignore on some devices): $e');
-    }
-
-    // Real-time stream listener for significant movement
-    _positionSubscription?.cancel();
-    _positionSubscription = Geolocator.getPositionStream(
-      locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.high,
-        distanceFilter: 10,
-        timeLimit: Duration(seconds: 20),
-      ),
-    ).listen(
-      (position) async {
-        _log('Stream position received lat=${position.latitude}, lng=${position.longitude}, acc=${position.accuracy}.');
-        await _handleBackgroundPosition(position);
-      },
-      onError: (error) {
-        _log('Background location stream error: $error');
-      },
-    );
-
-    // Fallback timer to ensure periodic updates if stream pauses
-    Timer? serviceTimer = Timer.periodic(const Duration(minutes: 1), (timer) async {
-      if (service is AndroidServiceInstance && !(await service.isForegroundService())) {
-        await service.setAsForegroundService();
-        _log('Fallback timer promoted service back to foreground.');
+    // Increased interval to 45 seconds for better battery performance
+    Timer? serviceTimer = Timer.periodic(const Duration(seconds: 45), (timer) async {
+      if (service is AndroidServiceInstance) {
+        if (await service.isForegroundService()) {
+          await _trackLocation(service);
+        }
+      } else {
+        await _trackLocation(service);
       }
-      await _trackLocation(service);
     });
 
     service.on('stopService').listen((event) {
       serviceTimer.cancel();
-      _positionSubscription?.cancel();
-      _positionSubscription = null;
-      _log('Service stop requested; cleaned up timers and subscriptions.');
       service.stopSelf();
     });
   }
@@ -148,7 +93,10 @@ class BackgroundLocationService {
       LocationPermission permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied || 
           permission == LocationPermission.deniedForever) {
-        _log('Location permission required (permission=$permission).');
+        // Only log error, don't update notification
+        if (kDebugMode) {
+          debugPrint('Location permission required');
+        }
         return;
       }
 
@@ -157,33 +105,34 @@ class BackgroundLocationService {
         locationSettings: _locationSettings,
       ).timeout(const Duration(seconds: 10));
 
-      await _handleBackgroundPosition(position);
-    } catch (e) {
-      _log('Location tracking error: $e');
-    }
-  }
-
-  static Future<void> _handleBackgroundPosition(Position position) async {
-    // Get tourist ID from preferences
-    final prefs = await SharedPreferences.getInstance();
-    final touristId = prefs.getString('tourist_id');
-
-    if (touristId != null) {
-      // Smart location filtering - only send if significant change
-      if (await _shouldUpdateLocation(position, prefs)) {
-        await _sendLocationUpdate(touristId, position);
-
-        // Store last position and update time
-        await prefs.setDouble('last_lat', position.latitude);
-        await prefs.setDouble('last_lng', position.longitude);
-        await prefs.setInt('last_update', DateTime.now().millisecondsSinceEpoch);
-
-        _log('Location pushed lat=${position.latitude.toStringAsFixed(5)} lng=${position.longitude.toStringAsFixed(5)} acc=${position.accuracy}m.');
+      // Get tourist ID from preferences
+      final prefs = await SharedPreferences.getInstance();
+      final touristId = prefs.getString('tourist_id');
+      
+      if (touristId != null) {
+        // Smart location filtering - only send if significant change
+        if (await _shouldUpdateLocation(position, prefs)) {
+          await _sendLocationUpdate(touristId, position);
+          
+          // Store last position and update time
+          await prefs.setDouble('last_lat', position.latitude);
+          await prefs.setDouble('last_lng', position.longitude);
+          await prefs.setInt('last_update', DateTime.now().millisecondsSinceEpoch);
+          
+          // Optional: Log successful location update for debugging
+          if (kDebugMode) {
+            debugPrint('Location updated: ${position.latitude.toStringAsFixed(4)}, ${position.longitude.toStringAsFixed(4)}');
+          }
+        }
       } else {
-        _log('Location skipped (no significant movement / within 1 min window).');
+        if (kDebugMode) {
+          debugPrint('Tourist ID not found - Please login');
+        }
       }
-    } else {
-      _log('Tourist ID not found in SharedPreferences; skipping update.');
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('Location tracking error: $e');
+      }
     }
   }
 
@@ -198,9 +147,9 @@ class BackgroundLocationService {
       return true;
     }
     
-    // Force update every minute regardless of distance
+    // Force update every 5 minutes regardless of distance
     final timeSinceLastUpdate = DateTime.now().millisecondsSinceEpoch - lastUpdate;
-    if (timeSinceLastUpdate >= 60 * 1000) {
+    if (timeSinceLastUpdate > 5 * 60 * 1000) {
       return true;
     }
     
@@ -210,12 +159,8 @@ class BackgroundLocationService {
       position.latitude, position.longitude,
     );
     
-    // Update if moved more than 10 meters (aligned with distance filter)
-    final shouldUpdate = distance > 10.0;
-    if (!shouldUpdate) {
-      _log('Distance since last update ${distance.toStringAsFixed(2)}m — below threshold, skipping.');
-    }
-    return shouldUpdate;
+    // Update if moved more than 25 meters (optimized for battery)
+    return distance > 25.0;
   }
 
   /// Send location update to backend with error handling
@@ -225,7 +170,7 @@ class BackgroundLocationService {
       if (touristIdInt == null) return;
 
       final response = await http.post(
-        Uri.parse('http://159.89.166.91:8000/locations/update'),
+        Uri.parse('http://159.89.166.91:8000/location/update'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           'tourist_id': touristIdInt,
@@ -234,13 +179,13 @@ class BackgroundLocationService {
         }),
       ).timeout(const Duration(seconds: 8));
 
-      if (response.statusCode != 200) {
-        _log('Failed to update location: HTTP ${response.statusCode} ${response.body}');
-      } else {
-        _log('Backend acknowledge status ${response.statusCode}.');
+      if (response.statusCode != 200 && kDebugMode) {
+        debugPrint('Failed to update location: ${response.statusCode}');
       }
     } catch (e) {
-      _log('Location update error: $e');
+      if (kDebugMode) {
+        debugPrint('Location update error: $e');
+      }
     }
   }
 
