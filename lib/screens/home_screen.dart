@@ -1,20 +1,22 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import '../models/tourist.dart';
 import '../models/location.dart';
 import '../models/alert.dart';
 import '../services/api_service.dart';
 import '../services/location_service.dart';
+import '../services/panic_service.dart';
 import '../widgets/safety_score_widget.dart';
 import 'map_screen.dart';
 import 'profile_screen.dart';
+import 'panic_alert_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   final Tourist tourist;
 
-  const HomeScreen({
-    super.key,
-    required this.tourist,
-  });
+  const HomeScreen({super.key, required this.tourist});
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -24,14 +26,19 @@ class _HomeScreenState extends State<HomeScreen> {
   int _currentIndex = 0;
   final ApiService _apiService = ApiService();
   final LocationService _locationService = LocationService();
-  
+  final PanicService _panicService = PanicService();
+
   SafetyScore? _safetyScore;
   List<Alert> _alerts = [];
   bool _isLoadingSafetyScore = false;
   bool _isLoadingAlerts = false;
   bool _isLoadingLocation = false;
+  bool _isSendingPanic = false;
   String _locationStatus = 'Your location will be sharing';
   Map<String, dynamic>? _currentLocationInfo;
+  Duration? _panicCooldownRemaining;
+  DateTime? _lastPanicTriggeredAt;
+  Timer? _panicCooldownTimer;
 
   @override
   void initState() {
@@ -40,11 +47,13 @@ class _HomeScreenState extends State<HomeScreen> {
     _loadSafetyScore();
     _loadAlerts();
     _getCurrentLocation();
+    _refreshPanicCooldown();
   }
 
   @override
   void dispose() {
     _locationService.dispose();
+    _panicCooldownTimer?.cancel();
     super.dispose();
   }
 
@@ -52,9 +61,9 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() {
       _isLoadingLocation = true;
     });
-    
+
     final locationInfo = await _locationService.getCurrentLocationWithAddress();
-    
+
     setState(() {
       _currentLocationInfo = locationInfo;
       _isLoadingLocation = false;
@@ -69,7 +78,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _initializeServices() async {
     // Start location tracking
     await _locationService.startTracking(widget.tourist.id);
-    
+
     // Listen to location status updates
     _locationService.statusStream.listen((status) {
       if (mounted) {
@@ -90,7 +99,7 @@ class _HomeScreenState extends State<HomeScreen> {
       if (touristIdInt == null) {
         throw Exception('Invalid tourist ID format');
       }
-      
+
       final score = await _apiService.getSafetyScore(touristIdInt);
       setState(() {
         _safetyScore = score;
@@ -136,17 +145,75 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  void _onPanicSent() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Emergency alert sent! Help is on the way.'),
-        backgroundColor: Colors.green,
-        duration: Duration(seconds: 3),
-      ),
-    );
+  Future<void> _refreshPanicCooldown() async {
+    final last = await _panicService.getLastPanicTime();
+    final remaining = await _panicService.cooldownRemaining();
+
+    if (!mounted) return;
+
+    setState(() {
+      _lastPanicTriggeredAt = last;
+      _panicCooldownRemaining = remaining;
+    });
+
+    if (remaining != null) {
+      _startCooldownTimer();
+    } else {
+      _stopCooldownTimer();
+    }
+  }
+
+  void _startCooldownTimer() {
+    _panicCooldownTimer?.cancel();
+    _panicCooldownTimer = Timer.periodic(const Duration(seconds: 30), (
+      _,
+    ) async {
+      final remaining = await _panicService.cooldownRemaining();
+      if (!mounted) return;
+
+      if (remaining == null) {
+        _panicCooldownTimer?.cancel();
+      }
+
+      setState(() {
+        _panicCooldownRemaining = remaining;
+      });
+    });
+  }
+
+  void _stopCooldownTimer() {
+    _panicCooldownTimer?.cancel();
+    _panicCooldownTimer = null;
+  }
+
+  String _formatCooldown(Duration duration) {
+    final hours = duration.inHours;
+    final minutes = duration.inMinutes % 60;
+    if (hours > 0) {
+      return '${hours}h ${minutes}m';
+    }
+    if (minutes > 0) {
+      final seconds = duration.inSeconds % 60;
+      return '${minutes}m ${seconds}s';
+    }
+    return '${duration.inSeconds}s';
+  }
+
+  String? _formattedLastPanicTime() {
+    if (_lastPanicTriggeredAt == null) return null;
+    return DateFormat('MMM d, h:mm a').format(_lastPanicTriggeredAt!);
   }
 
   Future<void> _handleSOSPress() async {
+    if (_isSendingPanic) {
+      return;
+    }
+
+    if (_panicCooldownRemaining != null) {
+      _showCooldownSnackBar(_panicCooldownRemaining!);
+      return;
+    }
+
     // Show confirmation dialog
     final confirmed = await showDialog<bool>(
       context: context,
@@ -172,10 +239,7 @@ class _HomeScreenState extends State<HomeScreen> {
             children: [
               Text(
                 'Are you in immediate danger?',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                ),
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
               ),
               SizedBox(height: 8),
               Text(
@@ -211,10 +275,32 @@ class _HomeScreenState extends State<HomeScreen> {
     if (confirmed != true) return;
 
     try {
+      final canTrigger = await _panicService.canTriggerPanic();
+      if (!canTrigger) {
+        final remaining = await _panicService.cooldownRemaining();
+        if (remaining != null) {
+          _showCooldownSnackBar(remaining);
+        }
+        return;
+      }
+
+      if (mounted) {
+        setState(() {
+          _isSendingPanic = true;
+        });
+      }
+
       // Get current location
       final position = await _locationService.getCurrentLocation();
       if (position == null) {
-        _showErrorSnackBar('Unable to get your current location. Please enable location services.');
+        _showErrorSnackBar(
+          'Unable to get your current location. Please enable location services.',
+        );
+        if (mounted) {
+          setState(() {
+            _isSendingPanic = false;
+          });
+        }
         return;
       }
 
@@ -222,6 +308,11 @@ class _HomeScreenState extends State<HomeScreen> {
       final touristIdInt = int.tryParse(widget.tourist.id);
       if (touristIdInt == null) {
         _showErrorSnackBar('Invalid tourist ID');
+        if (mounted) {
+          setState(() {
+            _isSendingPanic = false;
+          });
+        }
         return;
       }
 
@@ -232,16 +323,52 @@ class _HomeScreenState extends State<HomeScreen> {
       );
 
       if (response['success'] == true) {
-        _onPanicSent();
-        // Optionally trigger a refresh of alerts
+        final triggeredAt = DateTime.now();
+        await _panicService.recordPanicTrigger(triggeredAt);
+        if (mounted) {
+          setState(() {
+            _lastPanicTriggeredAt = triggeredAt;
+          });
+        }
+        await _refreshPanicCooldown();
         _loadAlerts();
+
+        if (mounted) {
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (context) => PanicAlertScreen(
+                tourist: widget.tourist,
+                triggeredAt: triggeredAt,
+                cooldown: PanicService.cooldownDuration,
+              ),
+            ),
+          );
+        }
       } else {
         _showErrorSnackBar('Failed to send emergency alert. Please try again.');
       }
     } catch (e) {
       debugPrint('SOS Error: $e');
       _showErrorSnackBar('Emergency alert failed: ${e.toString()}');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSendingPanic = false;
+        });
+      }
     }
+  }
+
+  void _showCooldownSnackBar(Duration remaining) {
+    final message =
+        'Panic alert already active. Try again in ${_formatCooldown(remaining)}.';
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.orange,
+        duration: const Duration(seconds: 4),
+      ),
+    );
   }
 
   void _showErrorSnackBar(String message) {
@@ -268,10 +395,7 @@ class _HomeScreenState extends State<HomeScreen> {
     ];
 
     return Scaffold(
-      body: IndexedStack(
-        index: _currentIndex,
-        children: screens,
-      ),
+      body: IndexedStack(index: _currentIndex, children: screens),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentIndex,
         onTap: _onTabTapped,
@@ -279,18 +403,9 @@ class _HomeScreenState extends State<HomeScreen> {
         selectedItemColor: Colors.blue,
         unselectedItemColor: Colors.grey,
         items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.home),
-            label: 'Home',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.map),
-            label: 'Map',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.person),
-            label: 'Profile',
-          ),
+          BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
+          BottomNavigationBarItem(icon: Icon(Icons.map), label: 'Map'),
+          BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Profile'),
         ],
       ),
     );
@@ -352,30 +467,19 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       body: RefreshIndicator(
         onRefresh: () async {
-          await Future.wait([
-            _loadSafetyScore(),
-            _loadAlerts(),
-          ]);
+          await Future.wait([_loadSafetyScore(), _loadAlerts()]);
         },
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
             // Current Location Card - Modern Design
             Card(
-              elevation: 4,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-              child: Container(
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(16),
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      Colors.blue.shade50,
-                      Colors.indigo.shade50,
-                    ],
-                  ),
-                ),
+              elevation: 0,
+              color: const Color(0xFFF7F9FF),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(18),
+              ),
+              child: Padding(
                 padding: const EdgeInsets.all(20),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -385,8 +489,9 @@ class _HomeScreenState extends State<HomeScreen> {
                         Container(
                           padding: const EdgeInsets.all(10),
                           decoration: BoxDecoration(
-                            color: Colors.blue.shade100,
-                            borderRadius: BorderRadius.circular(12),
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(color: Colors.blue.shade100),
                           ),
                           child: Icon(
                             Icons.my_location,
@@ -424,7 +529,9 @@ class _HomeScreenState extends State<HomeScreen> {
                             height: 20,
                             child: CircularProgressIndicator(
                               strokeWidth: 2,
-                              valueColor: AlwaysStoppedAnimation(Colors.blue.shade600),
+                              valueColor: AlwaysStoppedAnimation(
+                                Colors.blue.shade600,
+                              ),
                             ),
                           )
                         else
@@ -441,23 +548,21 @@ class _HomeScreenState extends State<HomeScreen> {
                     const SizedBox(height: 16),
                     if (_currentLocationInfo != null) ...[
                       Container(
-                        padding: const EdgeInsets.all(12),
+                        padding: const EdgeInsets.all(14),
                         decoration: BoxDecoration(
                           color: Colors.white,
-                          borderRadius: BorderRadius.circular(12),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.grey.shade200,
-                              blurRadius: 4,
-                              offset: const Offset(0, 2),
-                            ),
-                          ],
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: Colors.grey.shade200),
                         ),
                         child: Column(
                           children: [
                             Row(
                               children: [
-                                Icon(Icons.location_on, color: Colors.red.shade400, size: 20),
+                                Icon(
+                                  Icons.location_on,
+                                  color: Colors.red.shade400,
+                                  size: 20,
+                                ),
                                 const SizedBox(width: 8),
                                 Expanded(
                                   child: Text(
@@ -474,7 +579,11 @@ class _HomeScreenState extends State<HomeScreen> {
                             const SizedBox(height: 8),
                             Row(
                               children: [
-                                Icon(Icons.gps_fixed, color: Colors.green.shade400, size: 16),
+                                Icon(
+                                  Icons.gps_fixed,
+                                  color: Colors.green.shade400,
+                                  size: 16,
+                                ),
                                 const SizedBox(width: 8),
                                 Text(
                                   'Accuracy: ${_currentLocationInfo!['accuracy']}',
@@ -484,7 +593,11 @@ class _HomeScreenState extends State<HomeScreen> {
                                   ),
                                 ),
                                 const Spacer(),
-                                Icon(Icons.access_time, color: Colors.blue.shade400, size: 16),
+                                Icon(
+                                  Icons.access_time,
+                                  color: Colors.blue.shade400,
+                                  size: 16,
+                                ),
                                 const SizedBox(width: 4),
                                 Text(
                                   'Updated now',
@@ -502,13 +615,16 @@ class _HomeScreenState extends State<HomeScreen> {
                       Container(
                         padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
-                          color: Colors.orange.shade50,
+                          color: Colors.white,
                           borderRadius: BorderRadius.circular(12),
                           border: Border.all(color: Colors.orange.shade200),
                         ),
                         child: Row(
                           children: [
-                            Icon(Icons.location_off, color: Colors.orange.shade600),
+                            Icon(
+                              Icons.location_off,
+                              color: Colors.orange.shade600,
+                            ),
                             const SizedBox(width: 12),
                             Expanded(
                               child: Text(
@@ -523,7 +639,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       ),
                     ],
-                    
+
                     // Location Tracking Status
                     const SizedBox(height: 12),
                     Row(
@@ -532,17 +648,23 @@ class _HomeScreenState extends State<HomeScreen> {
                           width: 8,
                           height: 8,
                           decoration: BoxDecoration(
-                            color: _locationService.isTracking ? Colors.green : Colors.orange,
+                            color: _locationService.isTracking
+                                ? Colors.green
+                                : Colors.orange,
                             shape: BoxShape.circle,
                           ),
                         ),
                         const SizedBox(width: 8),
                         Text(
-                          _locationService.isTracking ? 'Location tracking active' : 'Location tracking inactive',
+                          _locationService.isTracking
+                              ? 'Location tracking active'
+                              : 'Location tracking inactive',
                           style: TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.w500,
-                            color: _locationService.isTracking ? Colors.green.shade700 : Colors.orange.shade700,
+                            color: _locationService.isTracking
+                                ? Colors.green.shade700
+                                : Colors.orange.shade700,
                           ),
                         ),
                       ],
@@ -614,80 +736,154 @@ class _HomeScreenState extends State<HomeScreen> {
 
             // Emergency SOS Button
             Container(
-              margin: const EdgeInsets.all(16),
-              child: GestureDetector(
-                onTap: () => _handleSOSPress(),
-                child: Container(
-                  width: double.infinity,
-                  height: 80,
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.centerLeft,
-                      end: Alignment.centerRight,
-                      colors: [
-                        Colors.red.shade600,
-                        Colors.red.shade700,
-                        Colors.red.shade800,
-                      ],
+              margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              child: Material(
+                color: _panicCooldownRemaining != null
+                    ? const Color(0xFFE57373)
+                    : const Color(0xFFD32F2F),
+                borderRadius: BorderRadius.circular(20),
+                child: InkWell(
+                  onTap: () {
+                    if (_isSendingPanic) return;
+                    if (_panicCooldownRemaining != null) {
+                      _showCooldownSnackBar(_panicCooldownRemaining!);
+                      return;
+                    }
+                    _handleSOSPress();
+                  },
+                  borderRadius: BorderRadius.circular(20),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 22,
+                      vertical: 22,
                     ),
-                    borderRadius: BorderRadius.circular(16),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.red.withValues(alpha: 0.3),
-                        blurRadius: 12,
-                        offset: const Offset(0, 4),
-                      ),
-                      BoxShadow(
-                        color: Colors.red.withValues(alpha: 0.1),
-                        blurRadius: 20,
-                        offset: const Offset(0, 8),
-                      ),
-                    ],
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.2),
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(
-                          Icons.emergency,
-                          color: Colors.white,
-                          size: 32,
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      const Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'EMERGENCY SOS',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 20,
-                              fontWeight: FontWeight.w800,
-                              letterSpacing: 1.2,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.15),
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                              child: const Icon(
+                                Icons.emergency,
+                                color: Colors.white,
+                                size: 30,
+                              ),
                             ),
-                          ),
+                            const SizedBox(width: 18),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    _isSendingPanic
+                                        ? 'Sending emergency alert'
+                                        : 'Emergency SOS',
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 20,
+                                      fontWeight: FontWeight.w700,
+                                      letterSpacing: 0.6,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    _panicCooldownRemaining != null
+                                        ? 'Available again in ${_formatCooldown(_panicCooldownRemaining!)}'
+                                        : 'Share your live location with authorities instantly.',
+                                    style: const TextStyle(
+                                      color: Colors.white70,
+                                      fontSize: 13,
+                                      height: 1.5,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            if (_panicCooldownRemaining != null)
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 6,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(30),
+                                ),
+                                child: Row(
+                                  children: const [
+                                    Icon(Icons.lock_clock, size: 16, color: Colors.white),
+                                    SizedBox(width: 6),
+                                    Text(
+                                      'Cooling down',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 18),
+                        if (_isSendingPanic)
+                          Row(
+                            children: const [
+                              SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  valueColor: AlwaysStoppedAnimation<Color>(
+                                    Colors.white,
+                                  ),
+                                ),
+                              ),
+                              SizedBox(width: 12),
+                              Text(
+                                'Sharing your location with the command center…',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                          )
+                        else
                           Text(
-                            'Tap for immediate help',
+                            'Use responsibly. False triggers impact real-time response teams.',
                             style: TextStyle(
-                              color: Colors.white70,
-                              fontSize: 14,
+                              color: Colors.white.withValues(alpha: 0.85),
+                              fontSize: 12,
                               fontWeight: FontWeight.w500,
                             ),
                           ),
-                        ],
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               ),
             ),
+            if (_formattedLastPanicTime() != null)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Text(
+                  'Last SOS sent ${_formattedLastPanicTime()}',
+                  style: TextStyle(
+                    color: Colors.grey.shade600,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
 
             // Recent Alerts
             if (_alerts.isNotEmpty) ...[
@@ -751,11 +947,7 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              icon,
-              color: const Color(0xFF1565C0),
-              size: 24,
-            ),
+            Icon(icon, color: const Color(0xFF1565C0), size: 24),
             const SizedBox(height: 8),
             Text(
               label,
@@ -883,10 +1075,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   padding: EdgeInsets.all(16),
                   child: Text(
                     'All Alerts',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                   ),
                 ),
                 const Divider(),

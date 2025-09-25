@@ -196,33 +196,45 @@ class ApiService {
   }
 
   Future<List<RestrictedZone>> getRestrictedZones() async {
-    try {
-      final response = await client.get(
-        Uri.parse("$baseUrl/zones/restricted"),
-        headers: headers,
-      ).timeout(timeout);
+    // Try multiple potential backend endpoints for flexibility
+    final candidates = <String>[
+      '/zones/restricted',
+      '/restrictedZones',
+      '/restricted_zones',
+      '/restricted-zones',
+      '/zones/restricted_zones',
+    ];
 
-      if (response.statusCode == 200) {
-        final List<dynamic> data = jsonDecode(response.body);
-        return data.map((item) {
-          return RestrictedZone(
-            id: item["id"].toString(),
-            name: item["name"],
-            description: item["description"] ?? "",
-            polygonCoordinates: (item["polygon_coordinates"] as List)
-                .map((coord) => LatLng(coord["lat"], coord["lng"]))
-                .toList(),
-            type: _parseZoneType(item["type"]),
-            warningMessage: item["warning_message"] ?? "You are entering a restricted area.",
-          );
-        }).toList();
+    final errors = <String>[];
+    for (final path in candidates) {
+      final url = Uri.parse('$baseUrl$path');
+      try {
+        if (kDebugMode) debugPrint('Attempting restricted zones endpoint: $url');
+        final response = await client.get(url, headers: headers).timeout(timeout);
+        if (response.statusCode == 200) {
+          if (kDebugMode) debugPrint('Restricted zones loaded from $path');
+          final List<dynamic> data = jsonDecode(response.body);
+          return data.map((item) {
+            return RestrictedZone(
+              id: item['id'].toString(),
+              name: item['name'],
+              description: item['description'] ?? '',
+              polygonCoordinates: (item['polygon_coordinates'] as List)
+                  .map((coord) => LatLng(coord['lat'], coord['lng']))
+                  .toList(),
+              type: _parseZoneType(item['type']),
+              warningMessage: item['warning_message'] ?? 'You are entering a restricted area.',
+            );
+          }).toList();
+        } else {
+          errors.add('$path -> HTTP ${response.statusCode}');
+        }
+      } catch (e) {
+        errors.add('$path -> $e');
       }
-
-      throw HttpException("Failed to load restricted zones: ${response.statusCode}");
-    } catch (e) {
-      if (kDebugMode) debugPrint("Get restricted zones error: $e");
-      throw Exception("Failed to get restricted zones: $e");
     }
+    if (kDebugMode) debugPrint('All restricted zone endpoints failed: ${errors.join('; ')}');
+    throw Exception('Failed to get restricted zones: ${errors.join('; ')}');
   }
 
   ZoneType _parseZoneType(String type) {
