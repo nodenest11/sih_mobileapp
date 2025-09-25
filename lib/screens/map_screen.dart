@@ -276,18 +276,16 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Safety Map'),
-        backgroundColor: Colors.blue,
-        foregroundColor: Colors.white,
+        backgroundColor: Colors.white,
+        foregroundColor: const Color(0xFF1565C0),
+        elevation: 0,
         actions: [
-          IconButton(
-            onPressed: () => _showMapOptions(),
-            icon: const Icon(Icons.layers),
-          ),
           IconButton(
             onPressed: _toggleFollowUser,
             icon: Icon(
-              _isFollowingUser ? Icons.my_location : Icons.location_searching,
+              _isFollowingUser ? Icons.my_location : Icons.location_searching_outlined,
             ),
+            tooltip: _isFollowingUser ? 'Stop following' : 'Follow location',
           ),
         ],
       ),
@@ -414,12 +412,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(8),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.1),
-                      blurRadius: 4,
-                    ),
-                  ],
+                  border: Border.all(color: Colors.grey.shade300),
                 ),
                 child: const SizedBox(
                   width: 20,
@@ -434,23 +427,12 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
         mainAxisAlignment: MainAxisAlignment.end,
         children: [
           FloatingActionButton(
-            heroTag: "zoom_in",
+            heroTag: "layers",
             mini: true,
-            onPressed: () {
-              final zoom = _mapController.camera.zoom + 1;
-              _mapController.move(_mapController.camera.center, zoom);
-            },
-            child: const Icon(Icons.zoom_in),
-          ),
-          const SizedBox(height: 8),
-          FloatingActionButton(
-            heroTag: "zoom_out",
-            mini: true,
-            onPressed: () {
-              final zoom = _mapController.camera.zoom - 1;
-              _mapController.move(_mapController.camera.center, zoom);
-            },
-            child: const Icon(Icons.zoom_out),
+            onPressed: _showMapOptions,
+            backgroundColor: Colors.white,
+            foregroundColor: const Color(0xFF1565C0),
+            child: const Icon(Icons.layers_outlined),
           ),
           const SizedBox(height: 8),
           FloatingActionButton(
@@ -462,7 +444,9 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                 _updateMapCenter(_currentLocation!);
               }
             },
-            child: const Icon(Icons.my_location),
+            backgroundColor: Colors.white,
+            foregroundColor: const Color(0xFF1565C0),
+            child: const Icon(Icons.my_location_outlined),
           ),
         ],
       ),

@@ -221,10 +221,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.white,
       appBar: AppBar(
         title: const Text('Profile'),
-        backgroundColor: Colors.blue,
-        foregroundColor: Colors.white,
+        backgroundColor: Colors.white,
+        foregroundColor: const Color(0xFF1565C0),
+        elevation: 0,
         actions: [
           IconButton(
             onPressed: _showAboutDialog,
@@ -236,209 +238,165 @@ class _ProfileScreenState extends State<ProfileScreen> {
         padding: const EdgeInsets.all(16),
         children: [
           // Profile Header
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                children: [
-                  // Avatar
-                  CircleAvatar(
-                    radius: 50,
-                    backgroundColor: Colors.blue.withOpacity(0.1),
+          Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.grey.shade200),
+            ),
+            child: Column(
+              children: [
+                // Avatar
+                Container(
+                  width: 80,
+                  height: 80,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF1565C0),
+                    borderRadius: BorderRadius.circular(40),
+                  ),
+                  child: Center(
                     child: Text(
                       widget.tourist.name.isNotEmpty 
                           ? widget.tourist.name[0].toUpperCase()
                           : '?',
                       style: const TextStyle(
-                        fontSize: 36,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.blue,
+                        fontSize: 32,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.white,
                       ),
                     ),
                   ),
-                  const SizedBox(height: 16),
-                  
-                  // Name
-                  Text(
-                    widget.tourist.name,
-                    style: const TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
+                ),
+                const SizedBox(height: 16),
+                
+                // Name
+                Text(
+                  widget.tourist.name,
+                  style: const TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF333333),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                
+                // Tourist ID
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade100,
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Text(
+                    'ID: ${widget.tourist.id}',
+                    style: TextStyle(
+                      color: Colors.grey.shade700,
+                      fontWeight: FontWeight.w500,
+                      fontSize: 12,
                     ),
                   ),
-                  const SizedBox(height: 8),
-                  
-                  // Tourist ID
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: Colors.blue.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Text(
-                      'ID: ${widget.tourist.id}',
-                      style: const TextStyle(
-                        color: Colors.blue,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
           
           const SizedBox(height: 16),
           
           // Contact Information
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Contact Information',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.grey.shade200),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Contact Information',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF333333),
                   ),
-                  const SizedBox(height: 16),
-                  
-                  if (widget.tourist.email != null) ...[
-                    ListTile(
-                      leading: const Icon(Icons.email, color: Colors.blue),
-                      title: const Text('Email'),
-                      subtitle: Text(widget.tourist.email!),
-                      contentPadding: EdgeInsets.zero,
-                    ),
-                  ],
-                  
-                  if (widget.tourist.phone != null) ...[
-                    ListTile(
-                      leading: const Icon(Icons.phone, color: Colors.blue),
-                      title: const Text('Phone'),
-                      subtitle: Text(widget.tourist.phone!),
-                      contentPadding: EdgeInsets.zero,
-                    ),
-                  ],
-                  
-                  if (widget.tourist.email == null && widget.tourist.phone == null)
-                    const Text(
-                      'No contact information provided',
-                      style: TextStyle(color: Colors.grey),
-                    ),
+                ),
+                const SizedBox(height: 16),
+                if (widget.tourist.phone != null) ...[
+                  _buildInfoRow(
+                    icon: Icons.phone_outlined,
+                    label: 'Phone',
+                    value: '+91 ${widget.tourist.phone}',
+                  ),
+                  const SizedBox(height: 12),
                 ],
-              ),
+                if (widget.tourist.email != null) ...[
+                  _buildInfoRow(
+                    icon: Icons.email_outlined,
+                    label: 'Email',
+                    value: widget.tourist.email!,
+                  ),
+                  const SizedBox(height: 12),
+                ],
+                _buildInfoRow(
+                  icon: Icons.calendar_today_outlined,
+                  label: 'Registered',
+                  value: widget.tourist.registrationDate != null
+                      ? '${widget.tourist.registrationDate!.day}/${widget.tourist.registrationDate!.month}/${widget.tourist.registrationDate!.year}'
+                      : 'Today',
+                ),
+              ],
             ),
           ),
           
           const SizedBox(height: 16),
           
-          // Location & Tracking
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Location & Tracking',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  
-                  if (_isLoadingLocationSettings)
-                    const Center(child: CircularProgressIndicator())
-                  else ...[
-                    ListTile(
-                      leading: Icon(
-                        _isLocationEnabled() ? Icons.location_on : Icons.location_off,
-                        color: _isLocationEnabled() ? Colors.green : Colors.red,
-                      ),
-                      title: const Text('Location Permission'),
-                      subtitle: Text(_getPermissionStatusText()),
-                      trailing: IconButton(
-                        icon: const Icon(Icons.info_outline),
-                        onPressed: _showLocationPermissionDialog,
-                      ),
-                      contentPadding: EdgeInsets.zero,
-                    ),
-                    
-                    ListTile(
-                      leading: Icon(
-                        _locationSettings['isTracking'] == true 
-                            ? Icons.track_changes 
-                            : Icons.stop_circle,
-                        color: _locationSettings['isTracking'] == true 
-                            ? Colors.green 
-                            : Colors.grey,
-                      ),
-                      title: const Text('Live Tracking'),
-                      subtitle: Text(
-                        _locationSettings['isTracking'] == true 
-                            ? 'Active - Your location is being tracked'
-                            : 'Inactive - Location tracking is stopped',
-                      ),
-                      contentPadding: EdgeInsets.zero,
-                    ),
-                    
-                    if (_locationSettings['lastUpdate'] != null)
-                      ListTile(
-                        leading: const Icon(Icons.schedule, color: Colors.blue),
-                        title: const Text('Last Location Update'),
-                        subtitle: Text(
-                          _formatDateTime(_locationSettings['lastUpdate']),
-                        ),
-                        contentPadding: EdgeInsets.zero,
-                      ),
-                  ],
-                ],
-              ),
+          // Location Settings
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.grey.shade200),
             ),
-          ),
-          
-          const SizedBox(height: 16),
-          
-          // App Settings
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Settings',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Location Settings',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF333333),
                   ),
-                  const SizedBox(height: 16),
-                  
-                  ListTile(
-                    leading: const Icon(Icons.refresh, color: Colors.blue),
-                    title: const Text('Refresh Location Settings'),
-                    subtitle: const Text('Update location and permission status'),
-                    trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-                    onTap: _loadLocationSettings,
-                    contentPadding: EdgeInsets.zero,
+                ),
+                const SizedBox(height: 16),
+                if (_isLoadingLocationSettings)
+                  const Center(child: CircularProgressIndicator())
+                else ...[
+                  _buildInfoRow(
+                    icon: Icons.location_on_outlined,
+                    label: 'Location Service',
+                    value: _locationSettings['serviceEnabled'] == true ? 'Enabled' : 'Disabled',
+                    valueColor: _locationSettings['serviceEnabled'] == true ? Colors.green : Colors.red,
                   ),
-                  
-                  ListTile(
-                    leading: const Icon(Icons.info, color: Colors.blue),
-                    title: const Text('About App'),
-                    subtitle: const Text('Version and app information'),
-                    trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-                    onTap: _showAboutDialog,
-                    contentPadding: EdgeInsets.zero,
+                  const SizedBox(height: 12),
+                  _buildInfoRow(
+                    icon: Icons.security_outlined,
+                    label: 'Permission',
+                    value: _locationSettings['permission']?.toString().split('.').last ?? 'Unknown',
+                    valueColor: _locationSettings['permission']?.toString().contains('granted') == true ? Colors.green : Colors.orange,
+                  ),
+                  const SizedBox(height: 12),
+                  _buildInfoRow(
+                    icon: Icons.track_changes_outlined,
+                    label: 'Tracking',
+                    value: _locationSettings['isTracking'] == true ? 'Active' : 'Inactive',
+                    valueColor: _locationSettings['isTracking'] == true ? Colors.green : Colors.grey,
                   ),
                 ],
-              ),
+              ],
             ),
           ),
           
@@ -454,20 +412,61 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(vertical: 16),
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(8),
                 ),
               ),
               child: const Text(
                 'Logout',
                 style: TextStyle(
                   fontSize: 16,
-                  fontWeight: FontWeight.bold,
+                  fontWeight: FontWeight.w500,
                 ),
               ),
             ),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildInfoRow({
+    required IconData icon,
+    required String label,
+    required String value,
+    Color? valueColor,
+  }) {
+    return Row(
+      children: [
+        Icon(
+          icon,
+          size: 20,
+          color: Colors.grey.shade600,
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.grey.shade600,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              Text(
+                value,
+                style: TextStyle(
+                  fontSize: 14,
+                  color: valueColor ?? const Color(0xFF333333),
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 

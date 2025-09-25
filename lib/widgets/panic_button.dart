@@ -16,37 +16,12 @@ class PanicButton extends StatefulWidget {
   State<PanicButton> createState() => _PanicButtonState();
 }
 
-class _PanicButtonState extends State<PanicButton>
-    with SingleTickerProviderStateMixin {
+class _PanicButtonState extends State<PanicButton> {
   final ApiService _apiService = ApiService();
   final LocationService _locationService = LocationService();
   
   bool _isLoading = false;
   bool _isPanicActive = false;
-  late AnimationController _animationController;
-  late Animation<double> _pulseAnimation;
-
-  @override
-  void initState() {
-    super.initState();
-    _animationController = AnimationController(
-      duration: const Duration(milliseconds: 1000),
-      vsync: this,
-    );
-    _pulseAnimation = Tween<double>(
-      begin: 1.0,
-      end: 1.2,
-    ).animate(CurvedAnimation(
-      parent: _animationController,
-      curve: Curves.easeInOut,
-    ));
-  }
-
-  @override
-  void dispose() {
-    _animationController.dispose();
-    super.dispose();
-  }
 
   Future<void> _handlePanicPress() async {
     if (_isLoading) return;
@@ -59,9 +34,6 @@ class _PanicButtonState extends State<PanicButton>
       _isLoading = true;
       _isPanicActive = true;
     });
-
-    // Start pulsing animation
-    _animationController.repeat(reverse: true);
 
     try {
       // Get current location
@@ -93,7 +65,6 @@ class _PanicButtonState extends State<PanicButton>
       setState(() {
         _isPanicActive = false;
       });
-      _animationController.stop();
     } finally {
       setState(() {
         _isLoading = false;
@@ -196,76 +167,50 @@ class _PanicButtonState extends State<PanicButton>
     setState(() {
       _isPanicActive = false;
     });
-    _animationController.stop();
-    _animationController.reset();
   }
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _pulseAnimation,
-      builder: (context, child) {
-        return Transform.scale(
-          scale: _isPanicActive ? _pulseAnimation.value : 1.0,
-          child: Container(
-            width: 80,
-            height: 80,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: _isPanicActive ? Colors.red.shade700 : Colors.red,
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.red.withOpacity(0.4),
-                  blurRadius: _isPanicActive ? 20 : 10,
-                  spreadRadius: _isPanicActive ? 5 : 2,
-                ),
-              ],
-            ),
-            child: Material(
-              color: Colors.transparent,
-              child: InkWell(
-                onTap: _isLoading ? null : _handlePanicPress,
-                borderRadius: BorderRadius.circular(40),
-                child: Container(
-                  decoration: const BoxDecoration(
-                    shape: BoxShape.circle,
-                  ),
-                  child: Center(
-                    child: _isLoading
-                        ? const SizedBox(
-                            width: 24,
-                            height: 24,
-                            child: CircularProgressIndicator(
-                              color: Colors.white,
-                              strokeWidth: 2,
-                            ),
-                          )
-                        : Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(
-                                _isPanicActive ? Icons.emergency : Icons.warning,
-                                color: Colors.white,
-                                size: 28,
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                _isPanicActive ? 'ACTIVE' : 'SOS',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ],
-                          ),
-                  ),
-                ),
-              ),
-            ),
+    return GestureDetector(
+      onTap: _isLoading ? null : _handlePanicPress,
+      child: Container(
+        width: 80,
+        height: 80,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: Colors.red,
+          border: Border.all(
+            color: Colors.red.shade700,
+            width: 2,
           ),
-        );
-      },
+        ),
+        child: Center(
+          child: _isLoading
+              ? const CircularProgressIndicator(
+                  color: Colors.white,
+                  strokeWidth: 2,
+                )
+              : Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      _isPanicActive ? Icons.emergency : Icons.warning_outlined,
+                      color: Colors.white,
+                      size: 24,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      _isPanicActive ? 'ACTIVE' : 'SOS',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 8,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+        ),
+      ),
     );
   }
 }

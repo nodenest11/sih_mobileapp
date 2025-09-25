@@ -5,10 +5,26 @@ import '../models/location.dart';
 import '../models/alert.dart';
 
 class ApiService {
-  // Local backend URL - Make sure your backend server is running on localhost:8000
-  static const String baseUrl = 'http://localhost:8000';
+  static const String baseUrl = 'http://159.89.166.91:8000';
   
   final http.Client _client = http.Client();
+
+  // Test connectivity method
+  Future<bool> testConnectivity() async {
+    try {
+      print('🌐 API: Testing connectivity to $baseUrl');
+      final response = await _client.get(
+        Uri.parse('$baseUrl/alerts'),
+        headers: {'Content-Type': 'application/json'},
+      ).timeout(const Duration(seconds: 10));
+      
+      print('🌐 API: Connectivity test result: ${response.statusCode}');
+      return response.statusCode == 200;
+    } catch (e) {
+      print('🌐 API: Connectivity test failed: $e');
+      return false;
+    }
+  }
 
   // Tourist Registration - matches backend POST /tourists/register
   Future<Map<String, dynamic>> registerTourist({
@@ -18,6 +34,10 @@ class ApiService {
     String? tripInfo,
   }) async {
     try {
+      print('🌐 API: Attempting to register tourist...');
+      print('🌐 API: URL: $baseUrl/tourists/register');
+      print('🌐 API: Data: {name: $name, contact: $contact}');
+      
       final response = await _client.post(
         Uri.parse('$baseUrl/tourists/register'),
         headers: {'Content-Type': 'application/json'},
@@ -27,7 +47,10 @@ class ApiService {
           'emergency_contact': emergencyContact ?? contact,
           'trip_info': tripInfo,
         }),
-      );
+      ).timeout(const Duration(seconds: 30));
+
+      print('🌐 API: Response status: ${response.statusCode}');
+      print('🌐 API: Response body: ${response.body}');
 
       if (response.statusCode == 201) {
         final data = jsonDecode(response.body);
@@ -37,15 +60,11 @@ class ApiService {
           'tourist': data,
         };
       } else {
-        throw Exception('Registration failed: ${response.statusCode}');
+        final errorData = jsonDecode(response.body);
+        throw Exception(errorData['message'] ?? 'Registration failed: ${response.statusCode}');
       }
     } catch (e) {
-      // Better error handling for connection issues
-      if (e.toString().contains('Failed to connect') || 
-          e.toString().contains('Connection refused') ||
-          e.toString().contains('Could not connect')) {
-        throw Exception('❌ Backend server not running!\n\nPlease start your backend server:\n1. Open terminal\n2. Navigate to backend folder\n3. Run: python app.py\n\nThen try again.');
-      }
+      print('🌐 API: Error during registration: $e');
       throw Exception('Failed to register tourist: $e');
     }
   }
@@ -57,6 +76,8 @@ class ApiService {
     required double longitude,
   }) async {
     try {
+      print('🌐 API: Updating location for tourist $touristId at ($latitude, $longitude)');
+      
       final response = await _client.post(
         Uri.parse('$baseUrl/locations/update'),
         headers: {'Content-Type': 'application/json'},
@@ -67,6 +88,8 @@ class ApiService {
         }),
       );
 
+      print('🌐 API: Location update response: ${response.statusCode}');
+
       if (response.statusCode == 201) {
         final data = jsonDecode(response.body);
         return {
@@ -75,15 +98,11 @@ class ApiService {
           'location': data,
         };
       } else {
-        throw Exception('Failed to update location: ${response.statusCode}');
+        final errorData = jsonDecode(response.body);
+        throw Exception(errorData['message'] ?? 'Failed to update location: ${response.statusCode}');
       }
     } catch (e) {
-      // Better error handling for connection issues
-      if (e.toString().contains('Failed to connect') || 
-          e.toString().contains('Connection refused') ||
-          e.toString().contains('Could not connect')) {
-        throw Exception('❌ Backend server not running!\n\nPlease start your backend server first.');
-      }
+      print('🌐 API: Location update error: $e');
       throw Exception('Failed to update location: $e');
     }
   }
@@ -110,19 +129,14 @@ class ApiService {
   // Get Heatmap Data - create from locations
   Future<List<HeatmapPoint>> getHeatmapData() async {
     try {
-      // Get all locations and convert to heatmap points
       final locations = await getAllLocations();
-      if (locations.isEmpty) {
-        return []; // Return empty list if no location data from backend
-      }
-      
       return locations.map((location) {
-        final intensity = location['intensity']?.toDouble();
+        final intensity = location['intensity']?.toDouble() ?? 0.5;
         final latitude = location['latitude']?.toDouble();
         final longitude = location['longitude']?.toDouble();
         
-        if (intensity == null || latitude == null || longitude == null) {
-          throw Exception('Location data missing required values from backend');
+        if (latitude == null || longitude == null) {
+          throw Exception('Location data missing coordinates');
         }
         
         return HeatmapPoint(
@@ -161,15 +175,10 @@ class ApiService {
           'alert': data,
         };
       } else {
-        throw Exception('Failed to send panic alert: ${response.statusCode}');
+        final errorData = jsonDecode(response.body);
+        throw Exception(errorData['message'] ?? 'Failed to send panic alert: ${response.statusCode}');
       }
     } catch (e) {
-      // Better error handling for connection issues
-      if (e.toString().contains('Failed to connect') || 
-          e.toString().contains('Connection refused') ||
-          e.toString().contains('Could not connect')) {
-        throw Exception('❌ Backend server not running!\n\nPlease start your backend server first.');
-      }
       throw Exception('Failed to send panic alert: $e');
     }
   }
@@ -216,13 +225,10 @@ class ApiService {
           );
         }).toList();
       } else {
-        // If backend doesn't have this endpoint yet, return empty list
-        return [];
+        throw Exception('Failed to load restricted zones: ${response.statusCode}');
       }
     } catch (e) {
-      // If backend is not available or endpoint doesn't exist, return empty list
-      // This prevents the app from crashing when backend doesn't support geo-fencing yet
-      return [];
+      throw Exception('Failed to get restricted zones: $e');
     }
   }
 
@@ -271,11 +277,7 @@ class ApiService {
   Future<SafetyScore> getSafetyScore(int touristId) async {
     try {
       final tourist = await getTourist(touristId);
-      final score = tourist['safety_score']?.toInt();
-      
-      if (score == null) {
-        throw Exception('Safety score not available from backend');
-      }
+      final score = tourist['safety_score']?.toInt() ?? 50;
       
       return SafetyScore(
         touristId: touristId.toString(),
