@@ -1,8 +1,12 @@
 import 'dart:async';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/location.dart';
 import 'api_service.dart';
+import 'background_location_service.dart';
 
 class LocationService {
   static const int _locationUpdateInterval = 10; // seconds
@@ -22,10 +26,10 @@ class LocationService {
   Position? get lastKnownPosition => _lastKnownPosition;
   bool get isTracking => _positionSubscription != null || _updateTimer != null;
 
-  // Check and request location permissions
+  // Check and request all necessary permissions including background location
   Future<bool> checkAndRequestPermissions() async {
     bool serviceEnabled;
-    LocationPermission permission;
+    LocationPermission locationPermission;
 
     // Check if location services are enabled
     serviceEnabled = await Geolocator.isLocationServiceEnabled();
@@ -35,18 +39,37 @@ class LocationService {
     }
 
     // Check location permissions
-    permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied) {
+    locationPermission = await Geolocator.checkPermission();
+    if (locationPermission == LocationPermission.denied) {
+      locationPermission = await Geolocator.requestPermission();
+      if (locationPermission == LocationPermission.denied) {
         _statusController.add('Location permissions are denied.');
         return false;
       }
     }
 
-    if (permission == LocationPermission.deniedForever) {
+    if (locationPermission == LocationPermission.deniedForever) {
       _statusController.add('Location permissions are permanently denied. Please enable them in settings.');
       return false;
+    }
+
+    // Request background location permission (Android 10+)
+    final backgroundLocationStatus = await Permission.locationAlways.request();
+    if (backgroundLocationStatus != PermissionStatus.granted) {
+      _statusController.add('Background location permission is required for continuous tracking.');
+      // Continue anyway as some devices might still work
+    }
+
+    // Request notification permissions
+    final notificationStatus = await Permission.notification.request();
+    if (notificationStatus != PermissionStatus.granted) {
+      _statusController.add('Notification permission denied. You may not see tracking status.');
+    }
+
+    // Request ignore battery optimization
+    final ignoreBatteryStatus = await Permission.ignoreBatteryOptimizations.request();
+    if (ignoreBatteryStatus != PermissionStatus.granted) {
+      _statusController.add('Please disable battery optimization for continuous tracking.');
     }
 
     _statusController.add('Location permissions granted.');
@@ -73,7 +96,7 @@ class LocationService {
     }
   }
 
-  // Start live location tracking
+  // Start live location tracking with background service
   Future<void> startTracking(String touristId) async {
     if (isTracking) {
       await stopTracking();
@@ -81,18 +104,28 @@ class LocationService {
 
     _currentTouristId = touristId;
     
+    // Save tourist ID to preferences for background service
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('tourist_id', touristId);
+    
     final hasPermission = await checkAndRequestPermissions();
     if (!hasPermission) return;
 
     _statusController.add('Starting location tracking...');
 
     try {
+      // Enable wake lock to prevent device from sleeping
+      await WakelockPlus.enable();
+      
+      // Initialize and start background location service
+      await BackgroundLocationService.initializeService();
+      
       const LocationSettings locationSettings = LocationSettings(
         accuracy: LocationAccuracy.high,
         distanceFilter: 5, // Update when user moves 5 meters
       );
 
-      // Start continuous location tracking
+      // Start continuous location tracking for foreground updates
       _positionSubscription = Geolocator.getPositionStream(
         locationSettings: locationSettings,
       ).listen(
@@ -105,7 +138,7 @@ class LocationService {
         },
       );
 
-      // Also set up periodic updates to backend (every 10 seconds)
+      // Set up periodic updates to backend (every 10 seconds)
       _updateTimer = Timer.periodic(
         const Duration(seconds: _locationUpdateInterval),
         (timer) {
@@ -115,13 +148,13 @@ class LocationService {
         },
       );
 
-      _statusController.add('Location tracking started successfully.');
+      _statusController.add('Location tracking started successfully with background service.');
     } catch (e) {
       _statusController.add('Failed to start location tracking: $e');
     }
   }
 
-  // Stop location tracking
+  // Stop location tracking and background service
   Future<void> stopTracking() async {
     _positionSubscription?.cancel();
     _positionSubscription = null;
@@ -129,7 +162,13 @@ class LocationService {
     _updateTimer?.cancel();
     _updateTimer = null;
     
-    _statusController.add('Location tracking stopped.');
+    // Disable wake lock
+    await WakelockPlus.disable();
+    
+    // Stop background service
+    await BackgroundLocationService.stopService();
+    
+    _statusController.add('Location tracking and background service stopped.');
   }
 
   // Handle location update
