@@ -2,11 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import '../models/tourist.dart';
-import '../models/location.dart';
 import '../models/alert.dart';
+import '../models/geospatial_heat.dart';
 import '../services/api_service.dart';
 import '../services/location_service.dart';
 import '../widgets/search_bar.dart' as custom_search;
+import '../widgets/geospatial_heatmap.dart';
+import '../widgets/heatmap_legend.dart';
 
 class MapScreen extends StatefulWidget {
   final Tourist tourist;
@@ -26,16 +28,23 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   final LocationService _locationService = LocationService();
   
   LatLng? _currentLocation; // Will be set when location is obtained
-  List<HeatmapPoint> _heatmapData = [];
   List<RestrictedZone> _restrictedZones = [];
   List<Marker> _markers = [];
   List<Polygon> _polygons = [];
   
-  bool _isLoadingHeatmap = false;
   bool _isLoadingZones = false;
-  bool _showHeatmap = true;
   bool _showRestrictedZones = true;
   bool _isFollowingUser = false;
+
+  // Heatmap state
+  List<GeospatialHeatPoint> _heatmapData = [];
+  bool _isLoadingHeatmap = false;
+  bool _showHeatmap = true;
+  bool _showHeatmapLegend = false;
+  Set<HeatPointType> _visibleHeatTypes = {
+    HeatPointType.panicAlert,
+    HeatPointType.restrictedZone,
+  };
 
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
@@ -67,8 +76,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
 
   Future<void> _initializeMap() async {
     await _getCurrentLocation();
-    await _loadHeatmapData();
     await _loadRestrictedZones();
+    await _loadHeatmapData();
     _listenToLocationUpdates();
   }
 
@@ -104,24 +113,6 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     });
   }
 
-  Future<void> _loadHeatmapData() async {
-    setState(() {
-      _isLoadingHeatmap = true;
-    });
-
-    try {
-      final heatmapData = await _apiService.getHeatmapData();
-      setState(() {
-        _heatmapData = heatmapData;
-        _isLoadingHeatmap = false;
-      });
-    } catch (e) {
-      setState(() {
-        _isLoadingHeatmap = false;
-      });
-    }
-  }
-
   Future<void> _loadRestrictedZones() async {
     setState(() {
       _isLoadingZones = true;
@@ -138,6 +129,55 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       setState(() {
         _isLoadingZones = false;
       });
+    }
+  }
+
+  Future<void> _loadHeatmapData() async {
+    if (!_showHeatmap) return;
+    
+    setState(() {
+      _isLoadingHeatmap = true;
+    });
+
+    try {
+      // Get panic alerts for heatmap
+      final panicHeatData = await _apiService.getPanicAlertHeatData(daysPast: 30);
+      
+      // Add restricted zones as heat points (lower intensity)
+      final restrictedZoneHeatData = _restrictedZones.map((zone) {
+        // Calculate zone centroid
+        final avgLat = zone.polygonCoordinates.map((p) => p.latitude).reduce((a, b) => a + b) / zone.polygonCoordinates.length;
+        final avgLng = zone.polygonCoordinates.map((p) => p.longitude).reduce((a, b) => a + b) / zone.polygonCoordinates.length;
+        
+        return GeospatialHeatPoint.fromRestrictedZone(
+          latitude: avgLat,
+          longitude: avgLng,
+          intensity: _getZoneIntensity(zone.type),
+          description: zone.name,
+        );
+      }).toList();
+
+      setState(() {
+        _heatmapData = [...panicHeatData, ...restrictedZoneHeatData];
+        _isLoadingHeatmap = false;
+      });
+    } catch (e) {
+      setState(() {
+        _isLoadingHeatmap = false;
+      });
+    }
+  }
+
+  double _getZoneIntensity(ZoneType type) {
+    switch (type) {
+      case ZoneType.highRisk:
+        return 0.9;
+      case ZoneType.dangerous:
+        return 0.8;
+      case ZoneType.restricted:
+        return 0.6;
+      case ZoneType.caution:
+        return 0.4;
     }
   }
 
@@ -321,22 +361,22 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                 userAgentPackageName: 'com.tourist.safety',
               ),
               
+              // Geospatial heatmap layer
+              if (_showHeatmap && _heatmapData.isNotEmpty)
+                GeospatialHeatmapLayer(
+                  heatPoints: _heatmapData,
+                  config: HeatmapConfig(
+                    visibleTypes: _visibleHeatTypes.toList(),
+                    baseRadius: 50.0,
+                    maxPoints: 1000,
+                  ),
+                  visible: _showHeatmap,
+                ),
+              
               // Restricted zones polygons
               if (_showRestrictedZones)
                 PolygonLayer(
                   polygons: _polygons,
-                ),
-              
-              // Heatmap circles (custom implementation)
-              if (_showHeatmap)
-                CircleLayer(
-                  circles: _heatmapData.map((point) => CircleMarker(
-                    point: point.latLng,
-                    color: Colors.red.withValues(alpha: point.intensity * 0.6),
-                    borderColor: Colors.red.withValues(alpha: point.intensity),
-                    borderStrokeWidth: 1.0,
-                    radius: 20 + (point.intensity * 30),
-                  )).toList(),
                 ),
               
               // Markers layer
@@ -403,7 +443,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
           ),
           
           // Loading indicators
-          if (_isLoadingHeatmap || _isLoadingZones)
+          if (_isLoadingZones)
             Positioned(
               top: 100,
               right: 16,
@@ -419,6 +459,77 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                   height: 20,
                   child: CircularProgressIndicator(strokeWidth: 2),
                 ),
+              ),
+            ),
+
+          // Heatmap loading indicator
+          if (_isLoadingHeatmap)
+            Positioned(
+              top: 100,
+              left: 16,
+              child: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.grey.shade300),
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                    SizedBox(width: 8),
+                    Text("Loading heatmap...", style: TextStyle(fontSize: 12)),
+                  ],
+                ),
+              ),
+            ),
+
+          // Heatmap controls
+          Positioned(
+            top: 140,
+            right: 16,
+            child: HeatmapControls(
+              heatmapVisible: _showHeatmap,
+              onToggleHeatmap: () {
+                setState(() {
+                  _showHeatmap = !_showHeatmap;
+                });
+                if (_showHeatmap && _heatmapData.isEmpty) {
+                  _loadHeatmapData();
+                }
+              },
+              onShowLegend: () {
+                setState(() {
+                  _showHeatmapLegend = !_showHeatmapLegend;
+                });
+              },
+            ),
+          ),
+
+          // Heatmap legend
+          if (_showHeatmapLegend)
+            Positioned(
+              top: 200,
+              right: 16,
+              left: 16,
+              child: HeatmapLegend(
+                visibleTypes: _visibleHeatTypes,
+                onVisibilityChanged: (newTypes) {
+                  setState(() {
+                    _visibleHeatTypes = newTypes;
+                  });
+                },
+                isExpanded: true,
+                onToggleExpanded: () {
+                  setState(() {
+                    _showHeatmapLegend = false;
+                  });
+                },
               ),
             ),
         ],
@@ -474,19 +585,6 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                   ),
                   const SizedBox(height: 16),
                   SwitchListTile(
-                    title: const Text('Show Heatmap'),
-                    subtitle: const Text('Display safety intensity areas'),
-                    value: _showHeatmap,
-                    onChanged: (value) {
-                      setModalState(() {
-                        _showHeatmap = value;
-                      });
-                      setState(() {
-                        _showHeatmap = value;
-                      });
-                    },
-                  ),
-                  SwitchListTile(
                     title: const Text('Show Restricted Zones'),
                     subtitle: const Text('Display high-risk and restricted areas'),
                     value: _showRestrictedZones,
@@ -521,7 +619,6 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                     child: ElevatedButton(
                       onPressed: () async {
                         Navigator.of(context).pop();
-                        await _loadHeatmapData();
                         await _loadRestrictedZones();
                       },
                       child: const Text('Refresh Map Data'),

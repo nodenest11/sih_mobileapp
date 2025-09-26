@@ -50,36 +50,6 @@ class LocationData {
   }
 }
 
-class HeatmapPoint {
-  final double latitude;
-  final double longitude;
-  final double intensity;
-
-  HeatmapPoint({
-    required this.latitude,
-    required this.longitude,
-    required this.intensity,
-  });
-
-  LatLng get latLng => LatLng(latitude, longitude);
-
-  factory HeatmapPoint.fromJson(Map<String, dynamic> json) {
-    return HeatmapPoint(
-      latitude: json['lat'].toDouble(),
-      longitude: json['lon'].toDouble(),
-      intensity: json['intensity'].toDouble(),
-    );
-  }
-
-  Map<String, dynamic> toJson() {
-    return {
-      'lat': latitude,
-      'lon': longitude,
-      'intensity': intensity,
-    };
-  }
-}
-
 class SafetyScore {
   final String touristId;
   final int score;

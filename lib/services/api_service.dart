@@ -6,6 +6,7 @@ import "package:latlong2/latlong.dart";
 
 import "../models/location.dart";
 import "../models/alert.dart";
+import "../models/geospatial_heat.dart";
 
 class ApiService {
   static const String baseUrl = "http://159.89.166.91:8000";
@@ -118,30 +119,6 @@ class ApiService {
     } catch (e) {
       if (kDebugMode) debugPrint("Get locations error: $e");
       throw Exception("Failed to load locations: $e");
-    }
-  }
-
-  Future<List<HeatmapPoint>> getHeatmapData() async {
-    try {
-      final locations = await getAllLocations();
-      return locations.map((location) {
-        final intensity = location["intensity"]?.toDouble() ?? 0.5;
-        final latitude = location["latitude"]?.toDouble();
-        final longitude = location["longitude"]?.toDouble();
-        
-        if (latitude == null || longitude == null) {
-          throw Exception("Location data missing coordinates");
-        }
-        
-        return HeatmapPoint(
-          latitude: latitude,
-          longitude: longitude,
-          intensity: intensity,
-        );
-      }).toList();
-    } catch (e) {
-      if (kDebugMode) debugPrint("Heatmap data error: $e");
-      throw Exception("Failed to get heatmap data: $e");
     }
   }
 
@@ -345,6 +322,146 @@ class ApiService {
         return AlertType.general;
       default:
         return AlertType.general;
+    }
+  }
+
+  /// Get panic alert history for heatmap visualization from backend database
+  Future<List<GeospatialHeatPoint>> getPanicAlertHeatData({
+    int? daysPast = 30,
+    double? minLat,
+    double? maxLat, 
+    double? minLng,
+    double? maxLng,
+  }) async {
+    try {
+      // Use the real alerts endpoint from the backend
+      final response = await client.get(
+        Uri.parse("$baseUrl/alerts"), 
+        headers: headers
+      ).timeout(timeout);
+      
+      if (response.statusCode == 200) {
+        final List<dynamic> data = jsonDecode(response.body);
+        
+        // Filter for panic alerts and recent data
+        final panicAlerts = data.where((item) {
+          if (item["type"]?.toLowerCase() != "panic") return false;
+          
+          // Check date filter
+          if (daysPast != null) {
+            final timestamp = DateTime.tryParse(item["timestamp"] ?? "");
+            if (timestamp == null || 
+                timestamp.isBefore(DateTime.now().subtract(Duration(days: daysPast)))) {
+              return false;
+            }
+          }
+          
+          // Check location bounds
+          final lat = item["latitude"]?.toDouble();
+          final lng = item["longitude"]?.toDouble();
+          if (lat == null || lng == null) return false;
+          
+          if (minLat != null && lat < minLat) return false;
+          if (maxLat != null && lat > maxLat) return false;
+          if (minLng != null && lng < minLng) return false;
+          if (maxLng != null && lng > maxLng) return false;
+          
+          return true;
+        }).toList();
+
+        return _aggregatePanicAlertsFromBackend(panicAlerts);
+      }
+
+      if (kDebugMode) debugPrint("Panic alert API failed with status: ${response.statusCode}");
+      return [];
+    } catch (e) {
+      if (kDebugMode) debugPrint("Panic alert heat data error: $e");
+      return [];
+    }
+  }
+
+  /// Aggregate panic alerts from backend database into heat points
+  List<GeospatialHeatPoint> _aggregatePanicAlertsFromBackend(List<dynamic> data) {
+    final Map<String, List<Map<String, dynamic>>> locationGroups = {};
+    
+    // Group alerts by approximate location (100m grid)
+    for (final item in data) {
+      final lat = (item["latitude"] as num).toDouble();
+      final lng = (item["longitude"] as num).toDouble();
+      
+      // Create location grid key (approx 100m precision)
+      final gridKey = "${(lat * 1000).round()},${(lng * 1000).round()}";
+      locationGroups[gridKey] ??= [];
+      locationGroups[gridKey]!.add({
+        'latitude': lat,
+        'longitude': lng,
+        'timestamp': item["timestamp"],
+        'tourist_id': item["tourist_id"],
+        'message': item["message"],
+      });
+    }
+
+    return locationGroups.entries.map((entry) {
+      final alerts = entry.value;
+      final firstAlert = alerts.first;
+      
+      // Calculate average position
+      final avgLat = alerts.map((a) => a["latitude"] as double).reduce((a, b) => a + b) / alerts.length;
+      final avgLng = alerts.map((a) => a["longitude"] as double).reduce((a, b) => a + b) / alerts.length;
+      
+      // Calculate intensity based on alert count and recency
+      final alertCount = alerts.length;
+      final recentCount = alerts.where((alert) {
+        final timestamp = DateTime.tryParse(alert["timestamp"] ?? "");
+        return timestamp?.isAfter(DateTime.now().subtract(const Duration(days: 7))) ?? false;
+      }).length;
+      
+      // Intensity formula: base on count + recent activity boost
+      final intensity = ((alertCount / 10.0) + (recentCount / 5.0)).clamp(0.1, 1.0);
+      
+      return GeospatialHeatPoint.fromPanicAlert(
+        latitude: avgLat,
+        longitude: avgLng,
+        intensity: intensity,
+        alertCount: alertCount,
+        description: alertCount == 1 
+            ? "1 panic alert"
+            : "$alertCount panic alerts",
+        timestamp: DateTime.tryParse(firstAlert["timestamp"] ?? "") ?? DateTime.now(),
+      );
+    }).toList();
+  }
+
+  /// Mark an alert as read
+  Future<bool> markAlertAsRead(String alertId) async {
+    try {
+      final response = await client.patch(
+        Uri.parse("$baseUrl/alerts/$alertId"),
+        headers: headers,
+        body: jsonEncode({
+          "is_read": true,
+        }),
+      ).timeout(timeout);
+
+      return response.statusCode == 200;
+    } catch (e) {
+      if (kDebugMode) debugPrint("Mark alert as read error: $e");
+      return false;
+    }
+  }
+
+  /// Delete an alert
+  Future<bool> deleteAlert(String alertId) async {
+    try {
+      final response = await client.delete(
+        Uri.parse("$baseUrl/alerts/$alertId"),
+        headers: headers,
+      ).timeout(timeout);
+
+      return response.statusCode == 200 || response.statusCode == 204;
+    } catch (e) {
+      if (kDebugMode) debugPrint("Delete alert error: $e");
+      return false;
     }
   }
 }

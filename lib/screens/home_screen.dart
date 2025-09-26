@@ -6,9 +6,12 @@ import '../models/alert.dart';
 import '../services/api_service.dart';
 import '../services/location_service.dart';
 import '../services/panic_service.dart';
+import '../services/geofencing_service.dart';
 // import 'panic_result_screen.dart'; // No longer needed directly; result navigation handled via countdown screen
 import 'panic_countdown_screen.dart';
+import 'notification_screen.dart';
 import '../widgets/safety_score_widget.dart';
+import '../widgets/geofence_alert.dart';
 import 'map_screen.dart';
 import 'profile_screen.dart';
 import '../theme/app_theme.dart';
@@ -31,6 +34,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final ApiService _apiService = ApiService();
   final LocationService _locationService = LocationService();
   final PanicService _panicService = PanicService();
+  final GeofencingService _geofencingService = GeofencingService.instance;
   
   SafetyScore? _safetyScore;
   List<Alert> _alerts = [];
@@ -50,12 +54,14 @@ class _HomeScreenState extends State<HomeScreen> {
     _loadSafetyScore();
     _loadAlerts();
     _getCurrentLocation();
+    _initializeGeofencing();
   }
 
   @override
   void dispose() {
     _panicTimer?.cancel();
     _locationService.dispose();
+    _geofencingService.stopMonitoring();
     super.dispose();
   }
 
@@ -105,6 +111,29 @@ class _HomeScreenState extends State<HomeScreen> {
       }
       _startPanicTicker();
     }
+  }
+
+  Future<void> _initializeGeofencing() async {
+    // Start geofencing monitoring
+    await _geofencingService.startMonitoring();
+    
+    // Listen to geofence events and show alerts
+    _geofencingService.events.listen((event) {
+      if (mounted) {
+        _showGeofenceAlert(event.zone, event.eventType);
+      }
+    });
+  }
+  
+  void _showGeofenceAlert(RestrictedZone zone, GeofenceEventType eventType) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => GeofenceAlertDialog(
+        zone: zone,
+        eventType: eventType,
+      ),
+    );
   }
 
   void _startPanicTicker() {
@@ -231,6 +260,17 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  void _navigateToNotifications() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => NotificationScreen(
+          touristId: widget.tourist.id,
+          initialAlerts: _alerts,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final List<Widget> screens = [
@@ -289,7 +329,7 @@ class _HomeScreenState extends State<HomeScreen> {
           Stack(
             children: [
               IconButton(
-                onPressed: _loadAlerts,
+                onPressed: _navigateToNotifications,
                 icon: const Icon(Icons.notifications_outlined),
                 tooltip: 'Notifications',
               ),
@@ -440,6 +480,16 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
             ],
           ),
+          const SizedBox(height: 8),
+          // Geofence status indicator
+          StreamBuilder<GeofenceEvent>(
+            stream: _geofencingService.events,
+            builder: (context, snapshot) {
+              return GeofenceIndicator(
+                currentZones: _geofencingService.currentZones,
+              );
+            },
+          ),
         ],
       ),
     );
@@ -501,7 +551,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         ),
         const SizedBox(height: 8),
-        ..._alerts.take(3).map((a) => _alertRow(a)).toList(),
+        ..._alerts.take(3).map((a) => _alertRow(a)),
       ],
     );
   }
