@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
@@ -55,12 +54,12 @@ class GeofencingService {
 
   /// Initialize the geofencing service
   Future<void> initialize() async {
-    if (kDebugMode) debugPrint('Initializing GeofencingService...');
+
     
     await _initializeNotifications();
     await _loadRestrictedZones();
     
-    if (kDebugMode) debugPrint('GeofencingService initialized with ${_restrictedZones.length} zones');
+
   }
 
   /// Initialize notification system
@@ -84,9 +83,9 @@ class GeofencingService {
   Future<void> _loadRestrictedZones() async {
     try {
       _restrictedZones = await _apiService.getRestrictedZones();
-      if (kDebugMode) debugPrint('Loaded ${_restrictedZones.length} restricted zones');
+
     } catch (e) {
-      if (kDebugMode) debugPrint('Error loading restricted zones: $e');
+
       _restrictedZones = [];
     }
   }
@@ -95,13 +94,13 @@ class GeofencingService {
   Future<void> startMonitoring() async {
     if (_isMonitoring) return;
     
-    if (kDebugMode) debugPrint('Starting geofence monitoring...');
+
     
     // Check location permission
     final permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied || 
         permission == LocationPermission.deniedForever) {
-      if (kDebugMode) debugPrint('Location permission denied');
+
       return;
     }
 
@@ -116,7 +115,7 @@ class GeofencingService {
 
   /// Stop monitoring geofences  
   void stopMonitoring() {
-    if (kDebugMode) debugPrint('Stopping geofence monitoring...');
+
     
     _isMonitoring = false;
     _locationTimer?.cancel();
@@ -154,13 +153,13 @@ class GeofencingService {
       _currentZones = newCurrentZones;
       
     } catch (e) {
-      if (kDebugMode) debugPrint('Error checking location: $e');
+
     }
   }
 
   /// Handle zone entry event
   Future<void> _handleZoneEntry(RestrictedZone zone, LatLng location) async {
-    if (kDebugMode) debugPrint('Entered restricted zone: ${zone.name}');
+
     
     final event = GeofenceEvent(
       zone: zone,
@@ -181,7 +180,7 @@ class GeofencingService {
 
   /// Handle zone exit event  
   Future<void> _handleZoneExit(RestrictedZone zone, LatLng location) async {
-    if (kDebugMode) debugPrint('Exited restricted zone: ${zone.name}');
+
     
     final event = GeofenceEvent(
       zone: zone,

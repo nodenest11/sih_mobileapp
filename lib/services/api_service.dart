@@ -2,228 +2,494 @@ import "dart:convert";
 import "dart:io";
 import "package:flutter/foundation.dart";
 import "package:http/http.dart" as http;
-import "package:latlong2/latlong.dart";
+import "package:shared_preferences/shared_preferences.dart";
+import "package:flutter_dotenv/flutter_dotenv.dart";
 
-import "../models/location.dart";
-import "../models/alert.dart";
 import "../models/geospatial_heat.dart";
+import "../models/alert.dart";
 
 class ApiService {
-  static const String baseUrl = "http://159.89.166.91:8000";
-  static const Duration timeout = Duration(seconds: 15);
+  // Load configuration from .env file - required values
+  static String get baseUrl => dotenv.env['API_BASE_URL']!;
+  static String get apiPrefix => dotenv.env['API_PREFIX']!;
+  static Duration get timeout => Duration(seconds: int.parse(dotenv.env['REQUEST_TIMEOUT_SECONDS']!));
+  static bool get debugMode => dotenv.env['DEBUG_MODE']?.toLowerCase() == 'true';
   
   final http.Client client = http.Client();
+  String? _authToken;
 
-  Map<String, String> get headers => {"Content-Type": "application/json"};
+  Map<String, String> get headers {
+    final Map<String, String> baseHeaders = {"Content-Type": "application/json"};
+    if (_authToken != null) {
+      baseHeaders["Authorization"] = "Bearer $_authToken";
+    }
+    return baseHeaders;
+  }
 
-  Future<bool> testConnectivity() async {
+  // Initialize authentication token from storage
+  Future<void> initializeAuth() async {
     try {
-      final response = await client.get(
-        Uri.parse("$baseUrl/alerts"),
-        headers: headers,
-      ).timeout(timeout);
-      
-      return response.statusCode == 200;
+      final prefs = await SharedPreferences.getInstance();
+      _authToken = prefs.getString('auth_token');
+
     } catch (e) {
-      if (kDebugMode) debugPrint("API connectivity failed: $e");
+      if (debugMode) debugPrint("Failed to load auth token: $e");
+    }
+  }
+
+  // Save authentication token to storage
+  Future<void> _saveAuthToken(String token) async {
+    _authToken = token;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('auth_token', token);
+    } catch (e) {
+      if (debugMode) debugPrint("Failed to save auth token: $e");
+    }
+  }
+
+  // Clear authentication token
+  Future<void> clearAuth() async {
+    _authToken = null;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('auth_token');
+    } catch (e) {
+      if (debugMode) debugPrint("Failed to clear auth token: $e");
+    }
+  }
+
+  // Test server connectivity
+  Future<bool> testConnection() async {
+    try {
+      if (debugMode) debugPrint("Testing connection to: $baseUrl");
+      
+      final response = await client.get(
+        Uri.parse("$baseUrl/health"),
+        headers: {"Content-Type": "application/json"},
+      ).timeout(Duration(seconds: 5));
+
+      if (debugMode) debugPrint("Connection test result: ${response.statusCode}");
+      return response.statusCode == 200 || response.statusCode == 404; // 404 is ok, means server is running
+    } catch (e) {
+      if (debugMode) debugPrint("Connection test failed: $e");
       return false;
     }
   }
 
-  Future<Map<String, dynamic>> registerTourist({
-    required String name,
-    required String contact,
-    String? emergencyContact,
-    String? tripInfo,
-  }) async {
+  // Debug token validation endpoint
+  Future<Map<String, dynamic>> debugToken() async {
     try {
-      final response = await client.post(
-        Uri.parse("$baseUrl/tourists/register"),
+      final response = await client.get(
+        Uri.parse("$baseUrl$apiPrefix/auth/debug-token"),
         headers: headers,
-        body: jsonEncode({
-          "name": name,
-          "contact": contact,
-          "emergency_contact": emergencyContact ?? contact,
-          "trip_info": tripInfo,
-        }),
       ).timeout(timeout);
 
-      if (response.statusCode == 201) {
+      if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
+        if (debugMode) {
+          debugPrint("Token debug info: $data");
+        }
         return {
           "success": true,
-          "message": "Tourist registered successfully",
-          "tourist": data,
+          "token_info": data,
         };
       }
 
-      throw HttpException("Registration failed: ${response.statusCode}");
+      throw HttpException("Token validation failed: ${response.statusCode}");
     } catch (e) {
-      if (kDebugMode) debugPrint("Registration error: $e");
+      if (debugMode) debugPrint("Token debug error: $e");
       return {
         "success": false,
-        "message": "Registration failed. Please check your connection.",
+        "message": "Token validation failed",
       };
     }
   }
 
-  void dispose() {
-    client.close();
-  }
 
-  Future<Map<String, dynamic>> updateLocation({
-    required int touristId,
-    required double latitude,
-    required double longitude,
+
+  // Authentication endpoints
+  Future<Map<String, dynamic>> registerTourist({
+    required String email,
+    required String password,
+    String? name,
+    String? phone,
+    String? emergencyContact,
+    String? emergencyPhone,
   }) async {
     try {
       final response = await client.post(
-        Uri.parse("$baseUrl/locations/update"),
-        headers: headers,
+        Uri.parse("$baseUrl$apiPrefix/auth/register"),
+        headers: {"Content-Type": "application/json"},
         body: jsonEncode({
-          "tourist_id": touristId,
-          "latitude": latitude,
-          "longitude": longitude,
+          "email": email,
+          "password": password,
+          if (name != null) "name": name,
+          if (phone != null) "phone": phone,
+          if (emergencyContact != null) "emergency_contact": emergencyContact,
+          if (emergencyPhone != null) "emergency_phone": emergencyPhone,
         }),
       ).timeout(timeout);
 
-      if (response.statusCode == 201) {
+      if (response.statusCode == 200 || response.statusCode == 201) {
         final data = jsonDecode(response.body);
         return {
           "success": true,
-          "message": "Location updated successfully",
-          "location": data,
+          "message": data["message"] ?? "Registration successful",
+          "user_id": data["user_id"],
+          "email": data["email"],
+        };
+      }
+
+      final errorData = jsonDecode(response.body);
+      throw HttpException("Registration failed: ${errorData['detail'] ?? errorData['message'] ?? 'Unknown error'}");
+    } catch (e) {
+      if (debugMode) debugPrint("Registration error: $e");
+      return {
+        "success": false,
+        "message": e is HttpException ? e.message : "Registration failed. Please check your connection.",
+      };
+    }
+  }
+
+  Future<Map<String, dynamic>> loginTourist({
+    required String email,
+    required String password,
+  }) async {
+    try {
+      final response = await client.post(
+        Uri.parse("$baseUrl$apiPrefix/auth/login"),
+        headers: {"Content-Type": "application/json"},
+        body: jsonEncode({
+          "email": email,
+          "password": password,
+        }),
+      ).timeout(timeout);
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final token = data["access_token"];
+        
+        // Validate token format and length
+        if (token == null || token.isEmpty) {
+          throw HttpException("Invalid token received from server");
+        }
+        
+        // Log token info for debugging (first/last 10 chars only)
+        if (debugMode) {
+          final tokenPreview = token.length > 20 
+              ? "${token.substring(0, 10)}...${token.substring(token.length - 10)}" 
+              : token;
+          debugPrint("Login successful. Token preview: $tokenPreview (length: ${token.length})");
+        }
+        
+        await _saveAuthToken(token);
+        return {
+          "success": true,
+          "access_token": token,
+          "token_type": data["token_type"] ?? "bearer",
+          "user_id": data["user_id"],
+          "email": data["email"],
+          "role": data["role"] ?? "tourist",
+          "token_length": token.length, // For debugging
+        };
+      }
+
+      final errorData = jsonDecode(response.body);
+      throw HttpException("Login failed: ${errorData['detail'] ?? errorData['message'] ?? 'Invalid credentials'}");
+    } catch (e) {
+      if (debugMode) debugPrint("Login error: $e");
+      return {
+        "success": false,
+        "message": e is HttpException ? e.message : "Login failed. Please check your connection.",
+      };
+    }
+  }
+
+  Future<Map<String, dynamic>> getCurrentUser() async {
+    try {
+      final response = await client.get(
+        Uri.parse("$baseUrl$apiPrefix/auth/me"),
+        headers: headers,
+      ).timeout(timeout);
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return {
+          "success": true,
+          "user": data,
+        };
+      } else if (response.statusCode == 403) {
+        // Token might be corrupted or invalid
+        if (debugMode) {
+          debugPrint("403 Forbidden - Token might be corrupted. Current token: ${_authToken?.substring(0, 20)}...");
+        }
+        
+        // Try debug token endpoint to verify token issues
+        final debugResult = await debugToken();
+        if (debugMode) {
+          debugPrint("Debug token result: $debugResult");
+        }
+        
+        throw HttpException("Authentication failed. Please login again. (Token may be corrupted)");
+      } else if (response.statusCode == 401) {
+        throw HttpException("Authentication expired. Please login again.");
+      }
+
+      throw HttpException("Failed to get user profile: ${response.statusCode}");
+    } catch (e) {
+      if (debugMode) debugPrint("Get user error: $e");
+      return {
+        "success": false,
+        "message": e is HttpException ? e.message : "Failed to load user profile.",
+      };
+    }
+  }
+
+  // Location tracking endpoints
+  Future<Map<String, dynamic>> updateLocation({
+    required double lat,
+    required double lon,
+    double? speed,
+    double? altitude,
+    double? accuracy,
+    DateTime? timestamp,
+  }) async {
+    try {
+      final response = await client.post(
+        Uri.parse("$baseUrl$apiPrefix/location/update"),
+        headers: headers,
+        body: jsonEncode({
+          "lat": lat,
+          "lon": lon,
+          if (speed != null) "speed": speed,
+          if (altitude != null) "altitude": altitude,
+          if (accuracy != null) "accuracy": accuracy,
+          if (timestamp != null) "timestamp": timestamp.toIso8601String(),
+        }),
+      ).timeout(timeout);
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return {
+          "success": true,
+          "status": data["status"],
+          "location_id": data["location_id"],
+          "safety_score": data["safety_score"],
+          "risk_level": data["risk_level"],
+          "lat": data["lat"],
+          "lon": data["lon"],
+          "timestamp": data["timestamp"],
         };
       }
 
       throw HttpException("Failed to update location: ${response.statusCode}");
     } catch (e) {
-      if (kDebugMode) debugPrint("Location update error: $e");
-      throw Exception("Failed to update location: $e");
+      if (debugMode) debugPrint("Location update error: $e");
+      return {
+        "success": false,
+        "message": "Failed to update location. Please check your connection.",
+      };
     }
   }
 
-  Future<List<Map<String, dynamic>>> getAllLocations() async {
+  Future<Map<String, dynamic>> getLocationHistory({int limit = 100}) async {
     try {
       final response = await client.get(
-        Uri.parse("$baseUrl/locations/all"),
+        Uri.parse("$baseUrl$apiPrefix/location/history?limit=$limit"),
         headers: headers,
       ).timeout(timeout);
 
       if (response.statusCode == 200) {
         final List<dynamic> data = jsonDecode(response.body);
-        return data.cast<Map<String, dynamic>>();
-      }
-
-      throw HttpException("Failed to load locations: ${response.statusCode}");
-    } catch (e) {
-      if (kDebugMode) debugPrint("Get locations error: $e");
-      throw Exception("Failed to load locations: $e");
-    }
-  }
-
-  Future<Map<String, dynamic>> sendPanicAlert({
-    required int touristId,
-    required double latitude,
-    required double longitude,
-  }) async {
-    try {
-      final response = await client.post(
-        Uri.parse("$baseUrl/alerts/panic"),
-        headers: headers,
-        body: jsonEncode({
-          "tourist_id": touristId,
-          "latitude": latitude,
-          "longitude": longitude,
-        }),
-      ).timeout(timeout);
-
-      if (response.statusCode == 201) {
-        final data = jsonDecode(response.body);
         return {
           "success": true,
-          "message": "Emergency alert sent successfully!",
-          "alert": data,
+          "locations": data,
         };
       }
 
-      throw HttpException("Failed to send panic alert: ${response.statusCode}");
+      throw HttpException("Failed to load location history: ${response.statusCode}");
     } catch (e) {
-      if (kDebugMode) debugPrint("Panic alert error: $e");
-      throw Exception("Failed to send panic alert: $e");
+      if (debugMode) debugPrint("Get location history error: $e");
+      return {
+        "success": false,
+        "message": "Failed to load location history.",
+      };
     }
   }
 
-  Future<Map<String, dynamic>> getTourist(int touristId) async {
+  // Trip management endpoints
+  Future<Map<String, dynamic>> startTrip({
+    required String destination,
+    String? itinerary,
+  }) async {
     try {
-      final response = await client.get(
-        Uri.parse("$baseUrl/tourists/$touristId"),
+      final response = await client.post(
+        Uri.parse("$baseUrl$apiPrefix/trip/start"),
+        headers: headers,
+        body: jsonEncode({
+          "destination": destination,
+          if (itinerary != null) "itinerary": itinerary,
+        }),
+      ).timeout(timeout);
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return {
+          "success": true,
+          "trip_id": data["trip_id"],
+          "destination": data["destination"],
+          "status": data["status"],
+          "start_date": data["start_date"],
+        };
+      }
+
+      throw HttpException("Failed to start trip: ${response.statusCode}");
+    } catch (e) {
+      if (debugMode) debugPrint("Start trip error: $e");
+      return {
+        "success": false,
+        "message": "Failed to start trip.",
+      };
+    }
+  }
+
+  Future<Map<String, dynamic>> endTrip() async {
+    try {
+      final response = await client.post(
+        Uri.parse("$baseUrl$apiPrefix/trip/end"),
         headers: headers,
       ).timeout(timeout);
 
       if (response.statusCode == 200) {
-        return jsonDecode(response.body);
+        final data = jsonDecode(response.body);
+        return {
+          "success": true,
+          "trip_id": data["trip_id"],
+          "status": data["status"],
+          "end_date": data["end_date"],
+        };
       }
 
-      throw HttpException("Failed to get tourist details: ${response.statusCode}");
+      throw HttpException("Failed to end trip: ${response.statusCode}");
     } catch (e) {
-      if (kDebugMode) debugPrint("Get tourist error: $e");
-      throw Exception("Failed to get tourist details: $e");
+      if (debugMode) debugPrint("End trip error: $e");
+      return {
+        "success": false,
+        "message": "Failed to end trip.",
+      };
     }
   }
 
-  Future<List<RestrictedZone>> getRestrictedZones() async {
+  Future<Map<String, dynamic>> getTripHistory() async {
     try {
       final response = await client.get(
-        Uri.parse("$baseUrl/zones/restricted"),
+        Uri.parse("$baseUrl$apiPrefix/trip/history"),
         headers: headers,
       ).timeout(timeout);
 
       if (response.statusCode == 200) {
         final List<dynamic> data = jsonDecode(response.body);
-        return data.map((item) {
-          return RestrictedZone(
-            id: item["id"].toString(),
-            name: item["name"],
-            description: item["description"] ?? "",
-            polygonCoordinates: (item["polygon_coordinates"] as List)
-                .map((coord) => LatLng(coord["lat"], coord["lng"]))
-                .toList(),
-            type: _parseZoneType(item["type"]),
-            warningMessage: item["warning_message"] ?? "You are entering a restricted area.",
-          );
-        }).toList();
+        return {
+          "success": true,
+          "trips": data,
+        };
       }
 
-      throw HttpException("Failed to load restricted zones: ${response.statusCode}");
+      throw HttpException("Failed to load trip history: ${response.statusCode}");
     } catch (e) {
-      if (kDebugMode) debugPrint("Get restricted zones error: $e");
-      throw Exception("Failed to get restricted zones: $e");
+      if (debugMode) debugPrint("Get trip history error: $e");
+      return {
+        "success": false,
+        "message": "Failed to load trip history.",
+      };
     }
   }
 
-  ZoneType _parseZoneType(String type) {
-    switch (type.toLowerCase()) {
-      case "high_risk":
-        return ZoneType.highRisk;
-      case "dangerous":
-        return ZoneType.dangerous;
-      case "restricted":
-        return ZoneType.restricted;
-      case "caution":
-        return ZoneType.caution;
-      default:
-        return ZoneType.caution;
+  // Safety and emergency endpoints
+  Future<Map<String, dynamic>> getSafetyScore() async {
+    try {
+      if (debugMode) debugPrint("Requesting safety score from: $baseUrl$apiPrefix/safety/score");
+      
+      final response = await client.get(
+        Uri.parse("$baseUrl$apiPrefix/safety/score"),
+        headers: headers,
+      ).timeout(timeout);
+
+      if (debugMode) debugPrint("Safety score response status: ${response.statusCode}");
+      if (debugMode) debugPrint("Safety score response body: ${response.body}");
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return {
+          "success": true,
+          "safety_score": data["safety_score"],
+          "risk_level": data["risk_level"],
+          "last_updated": data["last_updated"],
+        };
+      } else if (response.statusCode == 401) {
+        if (debugMode) debugPrint("Authentication error: ${response.body}");
+        return {
+          "success": false,
+          "message": "Authentication required. Please login again.",
+          "auth_error": true,
+        };
+      } else if (response.statusCode == 403) {
+        if (debugMode) debugPrint("Access forbidden: ${response.body}");
+        return {
+          "success": false,
+          "message": "Access denied. Invalid token or permissions.",
+          "auth_error": true,
+        };
+      }
+
+      throw HttpException("Failed to get safety score: ${response.statusCode} - ${response.body}");
+    } catch (e) {
+      if (debugMode) debugPrint("Get safety score error: $e");
+      return {
+        "success": false,
+        "message": "Failed to get safety score: ${e.toString()}",
+      };
     }
   }
 
+  Future<Map<String, dynamic>> triggerSOS() async {
+    try {
+      final response = await client.post(
+        Uri.parse("$baseUrl$apiPrefix/sos/trigger"),
+        headers: headers,
+      ).timeout(timeout);
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return {
+          "success": true,
+          "status": data["status"],
+          "alert_id": data["alert_id"],
+          "notifications_sent": data["notifications_sent"],
+          "timestamp": data["timestamp"],
+        };
+      }
+
+      throw HttpException("Failed to trigger SOS: ${response.statusCode}");
+    } catch (e) {
+      if (debugMode) debugPrint("SOS trigger error: $e");
+      return {
+        "success": false,
+        "message": "Failed to send SOS alert. Please try again.",
+      };
+    }
+  }
+
+  // Search functionality
   Future<List<Map<String, dynamic>>> searchLocation(String query) async {
     if (query.isEmpty) return [];
     
     try {
+      // Using Nominatim for location search as per specifications
       final encodedQuery = Uri.encodeComponent(query);
       final response = await client.get(
-        Uri.parse("https://nominatim.openstreetmap.org/search?format=json&q=$encodedQuery&limit=5"),
+        Uri.parse("https://nominatim.openstreetmap.org/search?format=json&q=$encodedQuery&limit=10"),
         headers: {"User-Agent": "TouristSafetyApp/1.0"},
       ).timeout(timeout);
 
@@ -238,94 +504,70 @@ class ApiService {
 
       throw HttpException("Search failed: ${response.statusCode}");
     } catch (e) {
-      if (kDebugMode) debugPrint("Location search error: $e");
+      if (debugMode) debugPrint("Location search error: $e");
       return [];
     }
   }
 
-  Future<SafetyScore> getSafetyScore(int touristId) async {
+  // Geofencing and zone management
+  Future<Map<String, dynamic>> checkGeofence({
+    required double lat,
+    required double lon,
+  }) async {
     try {
-      final tourist = await getTourist(touristId);
-      final score = tourist["safety_score"]?.toInt() ?? 50;
-      
-      return SafetyScore(
-        touristId: touristId.toString(),
-        score: score,
-        level: score >= 80 ? "Safe" : score >= 60 ? "Medium" : "Risk",
-        description: score >= 80 
-            ? "You are in a safe area"
-            : score >= 60 
-                ? "Moderate safety level"
-                : "High risk area - be cautious",
-        updatedAt: DateTime.now(),
-      );
+      final response = await client.post(
+        Uri.parse("$baseUrl$apiPrefix/ai/geofence/check"),
+        headers: headers,
+        body: jsonEncode({
+          "lat": lat,
+          "lon": lon,
+        }),
+      ).timeout(timeout);
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return {
+          "success": true,
+          "status": data["status"], // "safe", "risky", "restricted"
+          "zone_name": data["zone_name"],
+          "distance_to_zone": data["distance_to_zone"],
+          "recommendations": data["recommendations"],
+        };
+      }
+
+      throw HttpException("Failed to check geofence: ${response.statusCode}");
     } catch (e) {
-      if (kDebugMode) debugPrint("Get safety score error: $e");
-      return SafetyScore(
-        touristId: touristId.toString(),
-        score: 50,
-        level: "Medium",
-        description: "Safety score unavailable",
-        updatedAt: DateTime.now(),
-      );
+      if (debugMode) debugPrint("Geofence check error: $e");
+      return {
+        "success": false,
+        "status": "safe",
+        "zone_name": null,
+        "distance_to_zone": 0.0,
+        "recommendations": [],
+      };
     }
   }
 
-  Future<List<Alert>> getAlerts([int? touristId]) async {
+  Future<List<Map<String, dynamic>>> getSafetyZones() async {
     try {
       final response = await client.get(
-        Uri.parse("$baseUrl/alerts"),
+        Uri.parse("$baseUrl$apiPrefix/zones/list"),
         headers: headers,
       ).timeout(timeout);
 
       if (response.statusCode == 200) {
         final List<dynamic> data = jsonDecode(response.body);
-        
-        List<dynamic> filteredData = data;
-        if (touristId != null) {
-          filteredData = data.where((item) => item["tourist_id"] == touristId).toList();
-        }
-        
-        return filteredData.map((item) {
-          return Alert(
-            id: item["id"].toString(),
-            touristId: item["tourist_id"].toString(),
-            type: _parseAlertType(item["type"]),
-            title: item["title"] ?? "Alert",
-            message: item["message"],
-            latitude: item["latitude"]?.toDouble(),
-            longitude: item["longitude"]?.toDouble(),
-            timestamp: DateTime.tryParse(item["timestamp"]) ?? DateTime.now(),
-            isRead: item["is_read"] ?? false,
-          );
-        }).toList();
+        return data.cast<Map<String, dynamic>>();
       }
 
-      throw HttpException("Failed to get alerts: ${response.statusCode}");
+      throw HttpException("Failed to load safety zones: ${response.statusCode}");
     } catch (e) {
-      if (kDebugMode) debugPrint("Get alerts error: $e");
+      if (debugMode) debugPrint("Get safety zones error: $e");
       return [];
     }
   }
 
-  AlertType _parseAlertType(String type) {
-    switch (type.toLowerCase()) {
-      case "panic":
-      case "emergency":
-        return AlertType.panic;
-      case "zone_entry":
-      case "geofence":
-        return AlertType.geoFence;
-      case "safety":
-        return AlertType.safety;
-      case "general":
-        return AlertType.general;
-      default:
-        return AlertType.general;
-    }
-  }
-
-  /// Get panic alert history for heatmap visualization from backend database
+  // Heatmap and analytics data
   Future<List<GeospatialHeatPoint>> getPanicAlertHeatData({
     int? daysPast = 30,
     double? minLat,
@@ -334,22 +576,22 @@ class ApiService {
     double? maxLng,
   }) async {
     try {
-      // Use the real alerts endpoint from the backend
+      // Get recent alerts to generate heatmap data
       final response = await client.get(
-        Uri.parse("$baseUrl/alerts"), 
-        headers: headers
+        Uri.parse("$baseUrl$apiPrefix/alerts/recent?limit=1000&severity=high"),
+        headers: headers,
       ).timeout(timeout);
       
       if (response.statusCode == 200) {
         final List<dynamic> data = jsonDecode(response.body);
         
-        // Filter for panic alerts and recent data
+        // Filter for SOS/panic alerts and recent data
         final panicAlerts = data.where((item) {
-          if (item["type"]?.toLowerCase() != "panic") return false;
+          if (item["type"]?.toLowerCase() != "sos") return false;
           
           // Check date filter
           if (daysPast != null) {
-            final timestamp = DateTime.tryParse(item["timestamp"] ?? "");
+            final timestamp = DateTime.tryParse(item["created_at"] ?? "");
             if (timestamp == null || 
                 timestamp.isBefore(DateTime.now().subtract(Duration(days: daysPast)))) {
               return false;
@@ -357,8 +599,10 @@ class ApiService {
           }
           
           // Check location bounds
-          final lat = item["latitude"]?.toDouble();
-          final lng = item["longitude"]?.toDouble();
+          final location = item["location"];
+          if (location == null) return false;
+          final lat = location["lat"]?.toDouble();
+          final lng = location["lon"]?.toDouble();
           if (lat == null || lng == null) return false;
           
           if (minLat != null && lat < minLat) return false;
@@ -372,10 +616,10 @@ class ApiService {
         return _aggregatePanicAlertsFromBackend(panicAlerts);
       }
 
-      if (kDebugMode) debugPrint("Panic alert API failed with status: ${response.statusCode}");
+      if (debugMode) debugPrint("Panic alert API failed with status: ${response.statusCode}");
       return [];
     } catch (e) {
-      if (kDebugMode) debugPrint("Panic alert heat data error: $e");
+      if (debugMode) debugPrint("Panic alert heat data error: $e");
       return [];
     }
   }
@@ -386,8 +630,9 @@ class ApiService {
     
     // Group alerts by approximate location (100m grid)
     for (final item in data) {
-      final lat = (item["latitude"] as num).toDouble();
-      final lng = (item["longitude"] as num).toDouble();
+      final location = item["location"];
+      final lat = (location["lat"] as num).toDouble();
+      final lng = (location["lon"] as num).toDouble();
       
       // Create location grid key (approx 100m precision)
       final gridKey = "${(lat * 1000).round()},${(lng * 1000).round()}";
@@ -395,9 +640,9 @@ class ApiService {
       locationGroups[gridKey]!.add({
         'latitude': lat,
         'longitude': lng,
-        'timestamp': item["timestamp"],
+        'timestamp': item["created_at"],
         'tourist_id': item["tourist_id"],
-        'message': item["message"],
+        'description': item["description"],
       });
     }
 
@@ -425,43 +670,50 @@ class ApiService {
         intensity: intensity,
         alertCount: alertCount,
         description: alertCount == 1 
-            ? "1 panic alert"
-            : "$alertCount panic alerts",
+            ? "1 emergency alert"
+            : "$alertCount emergency alerts",
         timestamp: DateTime.tryParse(firstAlert["timestamp"] ?? "") ?? DateTime.now(),
       );
     }).toList();
   }
 
-  /// Mark an alert as read
-  Future<bool> markAlertAsRead(String alertId) async {
+  // Additional missing methods for compatibility
+  Future<List<RestrictedZone>> getRestrictedZones() async {
     try {
-      final response = await client.patch(
-        Uri.parse("$baseUrl/alerts/$alertId"),
-        headers: headers,
-        body: jsonEncode({
-          "is_read": true,
-        }),
-      ).timeout(timeout);
-
-      return response.statusCode == 200;
+      final response = await getSafetyZones();
+      return response.map<RestrictedZone>((item) => RestrictedZone.fromJson(item)).toList();
     } catch (e) {
-      if (kDebugMode) debugPrint("Mark alert as read error: $e");
-      return false;
+      if (debugMode) debugPrint("Get restricted zones error: $e");
+      return [];
     }
   }
 
-  /// Delete an alert
-  Future<bool> deleteAlert(String alertId) async {
-    try {
-      final response = await client.delete(
-        Uri.parse("$baseUrl/alerts/$alertId"),
-        headers: headers,
-      ).timeout(timeout);
+  Future<List<Alert>> getAlerts([int? touristId]) async {
+    // This method is not available for tourists in the new API
+    // Only police/authority users can view alerts
+    return [];
+  }
 
-      return response.statusCode == 200 || response.statusCode == 204;
-    } catch (e) {
-      if (kDebugMode) debugPrint("Delete alert error: $e");
-      return false;
-    }
+  Future<bool> markAlertAsRead(String alertId) async {
+    // This method is not available for tourists in the new API
+    return false;
+  }
+
+  Future<bool> deleteAlert(String alertId) async {
+    // This method is not available for tourists in the new API
+    return false;
+  }
+
+  Future<Map<String, dynamic>> sendPanicAlert({
+    required int touristId,
+    required double latitude,
+    required double longitude,
+  }) async {
+    // Use the new SOS endpoint instead
+    return await triggerSOS();
+  }
+
+  void dispose() {
+    client.close();
   }
 }

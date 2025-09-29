@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:geolocator/geolocator.dart';
+
 import 'api_service.dart';
 
 /// PanicService is responsible for enforcing a cooldown window between panic alerts,
@@ -10,11 +10,9 @@ class PanicService {
   static const Duration cooldown = Duration(hours: 1);
 
   final ApiService _apiService;
-  final GeolocatorPlatform _geolocator;
 
-  PanicService({ApiService? apiService, GeolocatorPlatform? geolocator})
-      : _apiService = apiService ?? ApiService(),
-        _geolocator = geolocator ?? GeolocatorPlatform.instance;
+  PanicService({ApiService? apiService})
+      : _apiService = apiService ?? ApiService();
 
   /// Returns the DateTime of last panic alert or null.
   Future<DateTime?> getLastPanicTime() async {
@@ -41,25 +39,17 @@ class PanicService {
   }
 
   /// Sends panic alert if not cooling down. Throws if disallowed or fails.
-  Future<Map<String, dynamic>> sendPanicAlert({required int touristId}) async {
+  Future<Map<String, dynamic>> sendPanicAlert() async {
     if (await isCoolingDown()) {
       final rem = await remaining();
       throw PanicCooldownException(rem);
     }
 
-    Position position;
-    try {
-      position = await _geolocator.getCurrentPosition();
-    } catch (e) {
-      // fallback attempt with reduced accuracy
-      position = await _geolocator.getCurrentPosition(locationSettings: const LocationSettings(accuracy: LocationAccuracy.low));
-    }
+    // Initialize API authentication
+    await _apiService.initializeAuth();
 
-    final response = await _apiService.sendPanicAlert(
-      touristId: touristId,
-      latitude: position.latitude,
-      longitude: position.longitude,
-    );
+    // The SOS endpoint doesn't require location as it gets it from the current location tracking
+    final response = await _apiService.triggerSOS();
 
     if (response['success'] == true) {
       final prefs = await SharedPreferences.getInstance();

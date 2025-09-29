@@ -1,9 +1,10 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+
 import '../models/location.dart';
 import 'api_service.dart';
 import 'background_location_service.dart';
@@ -127,16 +128,13 @@ class LocationService {
   }
 
   // Start live location tracking with background service
-  Future<void> startTracking(String touristId) async {
+  Future<void> startTracking() async {
     if (isTracking) {
       await stopTracking();
     }
 
-    _currentTouristId = touristId;
-    
-    // Save tourist ID to preferences for background service
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('tourist_id', touristId);
+    // Initialize API service with authentication
+    await _apiService.initializeAuth();
     
     _statusController.add('Initializing location services...');
     
@@ -156,8 +154,13 @@ class LocationService {
       // Enable wake lock to prevent device from sleeping
       await WakelockPlus.enable();
       
-      // Initialize and start background location service
-      await BackgroundLocationService.initializeService();
+      // Initialize background location service safely
+      try {
+        await BackgroundLocationService.initializeService();
+      } catch (e) {
+        debugPrint('Background service initialization failed: $e');
+        // Continue without background service if it fails
+      }
       
       const LocationSettings locationSettings = LocationSettings(
         accuracy: LocationAccuracy.high,
@@ -230,20 +233,21 @@ class LocationService {
 
   // Send location update to backend
   Future<void> _sendLocationToBackend(Position position) async {
-    if (_currentTouristId == null) return;
-
     try {
-      final touristIdInt = int.tryParse(_currentTouristId!);
-      if (touristIdInt == null) {
-        _statusController.add('Invalid tourist ID format');
-        return;
-      }
-
-      await _apiService.updateLocation(
-        touristId: touristIdInt,
-        latitude: position.latitude,
-        longitude: position.longitude,
+      final response = await _apiService.updateLocation(
+        lat: position.latitude,
+        lon: position.longitude,
+        speed: position.speed,
+        altitude: position.altitude,
+        accuracy: position.accuracy,
+        timestamp: DateTime.fromMillisecondsSinceEpoch(position.timestamp.millisecondsSinceEpoch),
       );
+
+      if (response['success'] == true) {
+        _statusController.add('Location updated - Safety: ${response['safety_score']}');
+      } else {
+        _statusController.add('Location update failed');
+      }
     } catch (e) {
       _statusController.add('Failed to update location to backend: $e');
     }

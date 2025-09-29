@@ -4,12 +4,10 @@ import '../services/panic_service.dart';
 import 'panic_result_screen.dart';
 
 class PanicCountdownScreen extends StatefulWidget {
-  final int touristId;
   final Duration countdownDuration;
 
   const PanicCountdownScreen({
     super.key,
-    required this.touristId,
     this.countdownDuration = const Duration(seconds: 10),
   });
 
@@ -47,7 +45,7 @@ class _PanicCountdownScreenState extends State<PanicCountdownScreen> {
     if (_sending) return;
     setState(() => _sending = true);
     try {
-      await _panicService.sendPanicAlert(touristId: widget.touristId);
+      await _panicService.sendPanicAlert();
       if (!mounted) return;
       final rem = await _panicService.remaining();
       Navigator.of(context).pushReplacement(

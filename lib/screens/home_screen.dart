@@ -16,6 +16,12 @@ import 'map_screen.dart';
 import 'profile_screen.dart';
 import '../theme/app_theme.dart';
 import '../widgets/sos_button.dart';
+import 'start_trip_screen.dart';
+import 'trip_history_screen.dart';
+import 'location_history_screen.dart';
+import 'settings_screen.dart';
+import 'safety_dashboard_screen.dart';
+import 'emergency_contacts_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   final Tourist tourist;
@@ -85,7 +91,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _initializeServices() async {
     // Start location tracking
-    await _locationService.startTracking(widget.tourist.id);
+    await _locationService.startTracking();
     
     // Listen to location status updates
     _locationService.statusStream.listen((status) {
@@ -162,16 +168,22 @@ class _HomeScreenState extends State<HomeScreen> {
     });
 
     try {
-      final touristIdInt = int.tryParse(widget.tourist.id);
-      if (touristIdInt == null) {
-        throw Exception('Invalid tourist ID format');
+      final response = await _apiService.getSafetyScore();
+      if (response['success'] == true) {
+        final score = SafetyScore(
+          touristId: widget.tourist.id,
+          score: response['safety_score'],
+          level: response['risk_level'], 
+          description: _getSafetyDescription(response['safety_score']),
+          updatedAt: DateTime.tryParse(response['last_updated'] ?? '') ?? DateTime.now(),
+        );
+        setState(() {
+          _safetyScore = score;
+          _isLoadingSafetyScore = false;
+        });
+      } else {
+        throw Exception('Failed to load safety score');
       }
-      
-      final score = await _apiService.getSafetyScore(touristIdInt);
-      setState(() {
-        _safetyScore = score;
-        _isLoadingSafetyScore = false;
-      });
     } catch (e) {
       setState(() {
         _isLoadingSafetyScore = false;
@@ -188,22 +200,12 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _loadAlerts() async {
+    // Alerts are not available for tourist users in the current API
+    // Only police/authority users can view alerts
     setState(() {
-      _isLoadingAlerts = true;
+      _isLoadingAlerts = false;
+      _alerts = [];
     });
-
-    try {
-      final touristIdInt = int.tryParse(widget.tourist.id);
-      final alerts = await _apiService.getAlerts(touristIdInt);
-      setState(() {
-        _alerts = alerts;
-        _isLoadingAlerts = false;
-      });
-    } catch (e) {
-      setState(() {
-        _isLoadingAlerts = false;
-      });
-    }
   }
 
   void _onTabTapped(int index) {
@@ -219,15 +221,11 @@ class _HomeScreenState extends State<HomeScreen> {
       _showErrorSnackBar('SOS already sent. Try again in ${_panicRemaining.inMinutes}m');
       return;
     }
-    final touristIdInt = int.tryParse(widget.tourist.id);
-    if (touristIdInt == null) {
-      _showErrorSnackBar('Invalid tourist ID');
-      return;
-    }
+    
     // Navigate to countdown screen which will handle sending automatically after grace period.
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => PanicCountdownScreen(touristId: touristIdInt),
+        builder: (_) => const PanicCountdownScreen(),
       ),
     ).then((_) async {
       // After returning (either cancelled or sent) refresh cooldown + alerts state
@@ -496,17 +494,76 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildQuickActions() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _quickActionPill(Icons.map_outlined, 'Map', () => _onTabTapped(1)),
-        _quickActionPill(Icons.search_outlined, 'Search', () => _onTabTapped(1)),
-        _quickActionPill(Icons.refresh_outlined, 'Refresh', () async {
-          await Future.wait([
-            _loadSafetyScore(),
-            _loadAlerts(),
-          ]);
-        }),
+        Row(
+          children: [
+            Text(
+              'Quick Actions',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+                color: Colors.grey.shade900,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        // First row of actions
+        Row(
+          children: [
+            _quickActionPill(Icons.map_outlined, 'Map', () => _onTabTapped(1)),
+            _quickActionPill(Icons.trip_origin, 'Start Trip', () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const StartTripScreen()),
+              );
+            }),
+            _quickActionPill(Icons.history, 'Trip History', () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const TripHistoryScreen()),
+              );
+            }),
+            _quickActionPill(Icons.location_history, 'Location History', () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const LocationHistoryScreen()),
+              );
+            }),
+          ],
+        ),
+        const SizedBox(height: 8),
+        // Second row of actions
+        Row(
+          children: [
+            _quickActionPill(Icons.security, 'Safety Dashboard', () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const SafetyDashboardScreen()),
+              );
+            }),
+            _quickActionPill(Icons.contacts, 'Emergency Contacts', () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const EmergencyContactsScreen()),
+              );
+            }),
+            _quickActionPill(Icons.settings, 'Settings', () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const SettingsScreen()),
+              );
+            }),
+            _quickActionPill(Icons.refresh_outlined, 'Refresh', () async {
+              await Future.wait([
+                _loadSafetyScore(),
+                _loadAlerts(),
+              ]);
+            }),
+          ],
+        ),
       ],
     );
   }
@@ -769,5 +826,11 @@ class _HomeScreenState extends State<HomeScreen> {
         subtitle: disabled ? 'Next in $remainingText' : 'Tap – 10s cancel window',
       ),
     );
+  }
+
+  String _getSafetyDescription(int score) {
+    if (score >= 80) return "You are in a safe area";
+    if (score >= 60) return "Moderate safety level";
+    return "High risk area - be cautious";
   }
 }

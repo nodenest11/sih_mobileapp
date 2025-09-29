@@ -1,8 +1,9 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+
 import '../services/api_service.dart';
 import '../models/tourist.dart';
-import 'home_screen.dart';
+import '../widgets/modern_app_wrapper.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -16,9 +17,13 @@ class _LoginScreenState extends State<LoginScreen> {
   final _nameController = TextEditingController();
   final _emailController = TextEditingController();
   final _phoneController = TextEditingController();
+  final _passwordController = TextEditingController();
+  final _emergencyContactController = TextEditingController();
+  final _emergencyPhoneController = TextEditingController();
   
   final ApiService _apiService = ApiService();
   bool _isLoading = false;
+  bool _isLoginMode = true; // true for login, false for register
 
   @override
   void initState() {
@@ -31,29 +36,81 @@ class _LoginScreenState extends State<LoginScreen> {
     _nameController.dispose();
     _emailController.dispose();
     _phoneController.dispose();
+    _passwordController.dispose();
+    _emergencyContactController.dispose();
+    _emergencyPhoneController.dispose();
     super.dispose();
   }
 
   Future<void> _checkExistingUser() async {
-    final prefs = await SharedPreferences.getInstance();
-    final touristId = prefs.getString('tourist_id');
-    final name = prefs.getString('tourist_name');
+    await _apiService.initializeAuth();
+    final response = await _apiService.getCurrentUser();
     
-    if (touristId != null && name != null) {
-      // User already logged in, navigate to home
+    if (response['success'] == true) {
+      final userData = response['user'];
+      final tourist = Tourist.fromJson(userData);
+      
       if (mounted) {
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(
-            builder: (context) => HomeScreen(
-              tourist: Tourist(
-                id: touristId,
-                name: name,
-                email: prefs.getString('tourist_email'),
-                phone: prefs.getString('tourist_phone'),
-              ),
-            ),
+            builder: (context) => ModernAppWrapper(tourist: tourist),
           ),
         );
+      }
+    }
+  }
+
+  Future<void> _login() async {
+    if (!_formKey.currentState!.validate()) return;
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      final response = await _apiService.loginTourist(
+        email: _emailController.text.trim(),
+        password: _passwordController.text.trim(),
+      );
+
+      if (response['success'] == true) {
+        // Show token info for debugging
+        if (response['token_length'] != null) {
+          debugPrint('Login successful! Token length: ${response['token_length']}');
+        }
+        
+        // Get current user profile with enhanced error handling
+        final userResponse = await _apiService.getCurrentUser();
+        if (userResponse['success'] == true) {
+          final tourist = Tourist.fromJson(userResponse['user']);
+          
+          if (mounted) {
+            Navigator.of(context).pushReplacement(
+              MaterialPageRoute(
+                builder: (context) => ModernAppWrapper(tourist: tourist),
+              ),
+            );
+          }
+        } else {
+          // Handle 403/token corruption specifically
+          if (userResponse['message']?.contains('corrupted') == true) {
+            _showError('Authentication token corrupted. Please try logging in again.');
+          } else if (userResponse['message']?.contains('403') == true) {
+            _showError('Access denied. Please check your credentials and try again.');
+          } else {
+            _showError(userResponse['message'] ?? 'Failed to load user profile');
+          }
+        }
+      } else {
+        _showError(response['message'] ?? 'Login failed');
+      }
+    } catch (e) {
+      _showConnectionError('Connection failed. Please check your internet connection and try again.');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
       }
     }
   }
@@ -67,248 +124,252 @@ class _LoginScreenState extends State<LoginScreen> {
 
     try {
       final response = await _apiService.registerTourist(
+        email: _emailController.text.trim(),
+        password: _passwordController.text.trim(),
         name: _nameController.text.trim(),
-        contact: _phoneController.text.trim(),
-        emergencyContact: _phoneController.text.trim(), // Using same phone as emergency for now
-        tripInfo: null, // No default trip info - let backend handle
+        phone: _phoneController.text.trim().isNotEmpty ? _phoneController.text.trim() : null,
+        emergencyContact: _emergencyContactController.text.trim().isNotEmpty ? _emergencyContactController.text.trim() : null,
+        emergencyPhone: _emergencyPhoneController.text.trim().isNotEmpty ? _emergencyPhoneController.text.trim() : null,
       );
 
       if (response['success'] == true) {
-        final touristData = response['tourist'];
-        
-        // Save user data locally
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setString('tourist_id', touristData['id'].toString());
-        await prefs.setString('tourist_name', _nameController.text.trim());
-        await prefs.setString('tourist_phone', _phoneController.text.trim());
-        if (_emailController.text.trim().isNotEmpty) {
-          await prefs.setString('tourist_email', _emailController.text.trim());
-        }
-
-        // Create tourist object
-        final tourist = Tourist(
-          id: touristData['id'].toString(),
-          name: _nameController.text.trim(),
-          email: _emailController.text.trim().isNotEmpty ? _emailController.text.trim() : null,
-          phone: _phoneController.text.trim(),
-          registrationDate: DateTime.now(),
-        );
-
-        // Navigate to home screen
-        if (mounted) {
-          Navigator.of(context).pushReplacement(
-            MaterialPageRoute(
-              builder: (context) => HomeScreen(tourist: tourist),
-            ),
-          );
-        }
+        _showSuccess('Registration successful! Please login with your credentials.');
+        setState(() {
+          _isLoginMode = true;
+        });
       } else {
-        _showErrorDialog(response['message'] ?? 'Registration failed');
+        _showError(response['message'] ?? 'Registration failed');
       }
     } catch (e) {
-      _showErrorDialog('Registration failed: $e');
+      _showError('Registration failed. Please check your connection.');
     } finally {
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
-  void _showErrorDialog(String message) {
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Row(
-            children: [
-              Icon(Icons.error, color: Colors.red),
-              SizedBox(width: 8),
-              Text('Error'),
-            ],
-          ),
+  void _showError(String message) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
           content: Text(message),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('OK'),
-            ),
-          ],
-        );
-      },
-    );
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  void _showSuccess(String message) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: Colors.green,
+        ),
+      );
+    }
+  }
+
+  void _showConnectionError(String message) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    }
+  }
+
+
+
+  void _switchMode() {
+    setState(() {
+      _isLoginMode = !_isLoginMode;
+      // Clear form
+      _nameController.clear();
+      _emailController.clear();
+      _phoneController.clear();
+      _passwordController.clear();
+      _emergencyContactController.clear();
+      _emergencyPhoneController.clear();
+    });
+  }
+
+  String? _validateEmail(String? value) {
+    if (value == null || value.isEmpty) {
+      return 'Email is required';
+    }
+    if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(value)) {
+      return 'Please enter a valid email';
+    }
+    return null;
+  }
+
+  String? _validatePassword(String? value) {
+    if (value == null || value.isEmpty) {
+      return 'Password is required';
+    }
+    if (value.length < 6) {
+      return 'Password must be at least 6 characters';
+    }
+    return null;
+  }
+
+  String? _validateName(String? value) {
+    if (!_isLoginMode && (value == null || value.trim().isEmpty)) {
+      return 'Name is required';
+    }
+    return null;
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
       body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: Form(
+            key: _formKey,
             child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // App Logo/Icon
-                Container(
-                  width: 80,
-                  height: 80,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF1565C0),
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: const Icon(
-                    Icons.security,
-                    size: 40,
-                    color: Colors.white,
-                  ),
+                const SizedBox(height: 60),
+                // App Logo/Title
+                const Icon(
+                  Icons.security,
+                  size: 80,
+                  color: Color(0xFF1565C0),
                 ),
-                const SizedBox(height: 32),
-                
-                // App Title
-                const Text(
+                const SizedBox(height: 24),
+                Text(
                   'Tourist Safety',
-                  style: TextStyle(
-                    fontSize: 28,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF1565C0),
+                  style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: const Color(0xFF1565C0),
                   ),
+                  textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Safe travel starts here',
-                  style: TextStyle(
-                    fontSize: 16,
-                    color: Colors.grey.shade600,
-                    fontWeight: FontWeight.w400,
-                  ),
+                  _isLoginMode ? 'Welcome back!' : 'Create your account',
+                  style: Theme.of(context).textTheme.bodyLarge,
+                  textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 48),
                 
-                // Registration Form
-                Container(
-                  constraints: const BoxConstraints(maxWidth: 400),
-                  child: Form(
-                    key: _formKey,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        const Text(
-                          'Create your profile',
-                          style: TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.w500,
-                            color: Color(0xFF333333),
-                          ),
-                        ),
-                        const SizedBox(height: 24),
-                        
-                        TextFormField(
-                          controller: _nameController,
-                          textCapitalization: TextCapitalization.words,
-                          decoration: const InputDecoration(
-                            labelText: 'Full Name',
-                            hintText: 'Enter your full name',
-                            prefixIcon: Icon(Icons.person_outline),
-                          ),
-                          validator: (value) {
-                            if (value == null || value.trim().isEmpty) {
-                              return 'Please enter your full name';
-                            }
-                            if (value.trim().length < 2) {
-                              return 'Name must be at least 2 characters';
-                            }
-                            return null;
-                          },
-                        ),
-                        const SizedBox(height: 16),
-
-                        TextFormField(
-                          controller: _phoneController,
-                          keyboardType: TextInputType.phone,
-                          decoration: const InputDecoration(
-                            labelText: 'Phone Number',
-                            hintText: '9876543210',
-                            prefixIcon: Icon(Icons.phone_outlined),
-                            prefixText: '+91 ',
-                            helperText: 'Used for emergency contact',
-                          ),
-                          validator: (value) {
-                            if (value == null || value.trim().isEmpty) {
-                              return 'Phone number is required';
-                            }
-                            if (value.trim().length != 10) {
-                              return 'Enter valid 10-digit phone number';
-                            }
-                            if (!RegExp(r'^[6-9][0-9]{9}$').hasMatch(value.trim())) {
-                              return 'Enter valid Indian mobile number';
-                            }
-                            return null;
-                          },
-                        ),
-                        const SizedBox(height: 16),
-
-                        TextFormField(
-                          controller: _emailController,
-                          keyboardType: TextInputType.emailAddress,
-                          decoration: const InputDecoration(
-                            labelText: 'Email (Optional)',
-                            hintText: 'your.email@example.com',
-                            prefixIcon: Icon(Icons.email_outlined),
-                          ),
-                          validator: (value) {
-                            if (value != null && value.trim().isNotEmpty) {
-                              if (!value.contains('@') || !value.contains('.')) {
-                                return 'Please enter a valid email';
-                              }
-                            }
-                            return null;
-                          },
-                        ),
-                        const SizedBox(height: 32),
-
-                        ElevatedButton(
-                          onPressed: _isLoading ? null : _register,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF1565C0),
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                          ),
-                          child: _isLoading
-                              ? const SizedBox(
-                                  height: 20,
-                                  width: 20,
-                                  child: CircularProgressIndicator(
-                                    color: Colors.white,
-                                    strokeWidth: 2,
-                                  ),
-                                )
-                              : const Text(
-                                  'Get Started',
-                                  style: TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                        ),
-                        const SizedBox(height: 24),
-                        
-                        // Privacy note
-                        Text(
-                          'By continuing, you agree to share your location for safety purposes.',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey.shade600,
-                          ),
-                          textAlign: TextAlign.center,
-                        ),
-                      ],
+                // Name field (only for registration)
+                if (!_isLoginMode) ...[
+                  TextFormField(
+                    controller: _nameController,
+                    decoration: const InputDecoration(
+                      labelText: 'Full Name',
+                      prefixIcon: Icon(Icons.person),
+                    ),
+                    validator: _validateName,
+                    textInputAction: TextInputAction.next,
+                  ),
+                  const SizedBox(height: 16),
+                ],
+                
+                // Email field
+                TextFormField(
+                  controller: _emailController,
+                  decoration: const InputDecoration(
+                    labelText: 'Email',
+                    prefixIcon: Icon(Icons.email),
+                  ),
+                  keyboardType: TextInputType.emailAddress,
+                  validator: _validateEmail,
+                  textInputAction: TextInputAction.next,
+                ),
+                const SizedBox(height: 16),
+                
+                // Password field
+                TextFormField(
+                  controller: _passwordController,
+                  decoration: const InputDecoration(
+                    labelText: 'Password',
+                    prefixIcon: Icon(Icons.lock),
+                  ),
+                  obscureText: true,
+                  validator: _validatePassword,
+                  textInputAction: TextInputAction.next,
+                ),
+                const SizedBox(height: 16),
+                
+                // Additional fields for registration
+                if (!_isLoginMode) ...[
+                  TextFormField(
+                    controller: _phoneController,
+                    decoration: const InputDecoration(
+                      labelText: 'Phone Number (Optional)',
+                      prefixIcon: Icon(Icons.phone),
+                    ),
+                    keyboardType: TextInputType.phone,
+                    textInputAction: TextInputAction.next,
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: _emergencyContactController,
+                    decoration: const InputDecoration(
+                      labelText: 'Emergency Contact Name (Optional)',
+                      prefixIcon: Icon(Icons.contacts),
+                    ),
+                    textInputAction: TextInputAction.next,
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: _emergencyPhoneController,
+                    decoration: const InputDecoration(
+                      labelText: 'Emergency Contact Phone (Optional)',
+                      prefixIcon: Icon(Icons.phone_in_talk),
+                    ),
+                    keyboardType: TextInputType.phone,
+                    textInputAction: TextInputAction.done,
+                  ),
+                  const SizedBox(height: 24),
+                ],
+                
+                const SizedBox(height: 32),
+                
+                // Login/Register button
+                ElevatedButton(
+                  onPressed: _isLoading ? null : (_isLoginMode ? _login : _register),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF1565C0),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
                     ),
                   ),
+                  child: _isLoading
+                      ? const CircularProgressIndicator(color: Colors.white)
+                      : Text(
+                          _isLoginMode ? 'Login' : 'Register',
+                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                        ),
                 ),
+                const SizedBox(height: 16),
+                
+                // Switch mode button
+                TextButton(
+                  onPressed: _isLoading ? null : _switchMode,
+                  child: Text(
+                    _isLoginMode
+                        ? "Don't have an account? Register"
+                        : "Already have an account? Login",
+                    style: const TextStyle(color: Color(0xFF1565C0)),
+                  ),
+                ),
+                
+
+
               ],
             ),
           ),

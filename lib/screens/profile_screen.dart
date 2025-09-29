@@ -309,6 +309,73 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ),
           ),
           
+          const SizedBox(height: 16),
+          
+          // Quick Actions
+          Row(
+            children: [
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: () {
+                    // Create a simple settings screen placeholder
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => Scaffold(
+                          appBar: AppBar(
+                            title: const Text('Settings'),
+                            backgroundColor: const Color(0xFF1565C0),
+                            foregroundColor: Colors.white,
+                          ),
+                          body: const Center(
+                            child: Text('Settings Screen - Coming Soon'),
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.settings, size: 16),
+                  label: const Text('Settings'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF1565C0),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: () {
+                    // Create a simple emergency contacts screen placeholder
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => Scaffold(
+                          appBar: AppBar(
+                            title: const Text('Emergency Contacts'),
+                            backgroundColor: const Color(0xFF1565C0),
+                            foregroundColor: Colors.white,
+                          ),
+                          body: const Center(
+                            child: Text('Emergency Contacts Screen - Coming Soon'),
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.contacts, size: 16),
+                  label: const Text('Contacts'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF1565C0),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          
           const SizedBox(height: 24),
           
           // Logout Button

@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:ui';
-import 'package:flutter/foundation.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -22,6 +21,7 @@ class BackgroundLocationService {
   /// Initialize the background service with optimized settings
   static Future<void> initializeService() async {
     try {
+      
       final service = FlutterBackgroundService();
 
       // Initialize notification manager first
@@ -49,9 +49,7 @@ class BackgroundLocationService {
       
       service.startService();
     } catch (e) {
-      if (kDebugMode) {
-        debugPrint('Failed to initialize background service: $e');
-      }
+      // Service initialization failed
     }
   }
 
@@ -93,10 +91,7 @@ class BackgroundLocationService {
       LocationPermission permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied || 
           permission == LocationPermission.deniedForever) {
-        // Only log error, don't update notification
-        if (kDebugMode) {
-          debugPrint('Location permission required');
-        }
+        // Location permission required
         return;
       }
 
@@ -119,20 +114,12 @@ class BackgroundLocationService {
           await prefs.setDouble('last_lng', position.longitude);
           await prefs.setInt('last_update', DateTime.now().millisecondsSinceEpoch);
           
-          // Optional: Log successful location update for debugging
-          if (kDebugMode) {
-            debugPrint('Location updated: ${position.latitude.toStringAsFixed(4)}, ${position.longitude.toStringAsFixed(4)}');
-          }
         }
       } else {
-        if (kDebugMode) {
-          debugPrint('Tourist ID not found - Please login');
-        }
+        // Tourist ID not found
       }
     } catch (e) {
-      if (kDebugMode) {
-        debugPrint('Location tracking error: $e');
-      }
+      // Location tracking error occurred
     }
   }
 
@@ -169,7 +156,7 @@ class BackgroundLocationService {
       final touristIdInt = int.tryParse(touristId);
       if (touristIdInt == null) return;
 
-      final response = await http.post(
+      await http.post(
         Uri.parse('http://159.89.166.91:8000/location/update'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
@@ -179,13 +166,8 @@ class BackgroundLocationService {
         }),
       ).timeout(const Duration(seconds: 8));
 
-      if (response.statusCode != 200 && kDebugMode) {
-        debugPrint('Failed to update location: ${response.statusCode}');
-      }
     } catch (e) {
-      if (kDebugMode) {
-        debugPrint('Location update error: $e');
-      }
+      // Location update error occurred
     }
   }
 
