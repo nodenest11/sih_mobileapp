@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
@@ -8,6 +7,7 @@ import 'package:permission_handler/permission_handler.dart';
 import '../models/location.dart';
 import 'api_service.dart';
 import 'background_location_service.dart';
+import '../utils/logger.dart';
 
 class LocationService {
   static const int _locationUpdateInterval = 10; // seconds
@@ -157,8 +157,9 @@ class LocationService {
       // Initialize background location service safely
       try {
         await BackgroundLocationService.initializeService();
+        AppLogger.service('Background location service initialized successfully');
       } catch (e) {
-        debugPrint('Background service initialization failed: $e');
+        AppLogger.service('Background service initialization failed', isError: true);
         // Continue without background service if it fails
       }
       

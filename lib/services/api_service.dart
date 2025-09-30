@@ -1,14 +1,19 @@
 import "dart:convert";
 import "dart:io";
-import "package:flutter/foundation.dart";
 import "package:http/http.dart" as http;
 import "package:shared_preferences/shared_preferences.dart";
 import "package:flutter_dotenv/flutter_dotenv.dart";
 
 import "../models/geospatial_heat.dart";
 import "../models/alert.dart";
+import "../utils/logger.dart";
 
 class ApiService {
+  // Singleton pattern to ensure only one instance throughout the app
+  static final ApiService _instance = ApiService._internal();
+  factory ApiService() => _instance;
+  ApiService._internal();
+
   // Load configuration from .env file - required values
   static String get baseUrl => dotenv.env['API_BASE_URL']!;
   static String get apiPrefix => dotenv.env['API_PREFIX']!;
@@ -17,23 +22,108 @@ class ApiService {
   
   final http.Client client = http.Client();
   String? _authToken;
+  bool _isInitialized = false;
 
   Map<String, String> get headers {
     final Map<String, String> baseHeaders = {"Content-Type": "application/json"};
-    if (_authToken != null) {
+    if (_authToken != null && _authToken!.isNotEmpty) {
       baseHeaders["Authorization"] = "Bearer $_authToken";
     }
     return baseHeaders;
   }
 
+  // Safer headers that ensure auth initialization
+  Future<Map<String, String>> get safeHeaders async {
+    await _ensureInitialized();
+    final Map<String, String> baseHeaders = {"Content-Type": "application/json"};
+    if (_authToken != null && _authToken!.isNotEmpty) {
+      baseHeaders["Authorization"] = "Bearer $_authToken";
+    }
+    return baseHeaders;
+  }
+
+  // Helper to mask passwords for safe logging (never log plaintext)
+  String _maskPassword(String password) {
+    final masked = List.filled(password.length, '*').join();
+    return '$masked (${password.length} chars)';
+  }
+
+  // Helper to mask tokens for safe logging (show first/last 6 chars)
+  String _maskToken(String? token) {
+    if (token == null || token.isEmpty) return 'null';
+    if (token.length <= 12) return '*' * token.length;
+    return '${token.substring(0, 6)}...${token.substring(token.length - 6)} (${token.length} chars)';
+  }
+
+  // Enhanced request logging with masked token
+  void _logRequest(String method, String endpoint, {Map<String, String>? headers}) {
+    AppLogger.apiRequest(method, endpoint);
+    if (headers != null && headers.containsKey('Authorization')) {
+      final authHeader = headers['Authorization']!;
+      if (authHeader.startsWith('Bearer ')) {
+        final token = authHeader.substring(7);
+        AppLogger.auth('Request with token: ${_maskToken(token)}');
+      }
+    } else {
+      AppLogger.auth('Request without authorization token', isError: true);
+    }
+  }
+
+  // Enhanced response logging with error details
+  void _logResponse(String endpoint, int statusCode, {String? body, bool isError = false}) {
+    AppLogger.apiResponse(endpoint, statusCode);
+    if (statusCode == 401) {
+      AppLogger.auth('401 Unauthorized - token invalid or expired', isError: true);
+      if (body != null) AppLogger.auth('401 Response body: $body');
+    } else if (statusCode == 403) {
+      AppLogger.auth('403 Forbidden - insufficient permissions or invalid token', isError: true);
+      if (body != null) AppLogger.auth('403 Response body: $body');
+    } else if (isError && body != null) {
+      AppLogger.api('Error response body: $body', isError: true);
+    }
+  }
+
   // Initialize authentication token from storage
   Future<void> initializeAuth() async {
+    if (_isInitialized) {
+      AppLogger.auth('Auth already initialized, skipping...');
+      return;
+    }
+
     try {
       final prefs = await SharedPreferences.getInstance();
-      _authToken = prefs.getString('auth_token');
-
+      final storedToken = prefs.getString('auth_token');
+      
+      if (storedToken != null && storedToken.isNotEmpty) {
+        AppLogger.auth('Found stored auth token, validating...');
+        _authToken = storedToken;
+        
+        // Validate the stored token
+        final isValid = await validateToken();
+        if (!isValid) {
+          AppLogger.auth('Stored token is invalid, clearing it', isError: true);
+          // clearAuth() is already called in validateToken() for invalid tokens
+          AppLogger.auth('App will require fresh login');
+        } else {
+          AppLogger.auth('Stored token is valid and ready to use');
+        }
+      } else {
+        AppLogger.auth('No existing auth token found');
+      }
+      
+      _isInitialized = true;
     } catch (e) {
-      if (debugMode) debugPrint("Failed to load auth token: $e");
+      AppLogger.auth('Failed to load auth token from storage: $e', isError: true);
+      // Clear any potentially corrupted token data
+      await clearAuth();
+      _isInitialized = true;
+    }
+  }
+
+  // Ensure authentication is initialized before making API calls
+  Future<void> _ensureInitialized() async {
+    if (!_isInitialized) {
+      await initializeAuth();
     }
   }
 
@@ -43,8 +133,9 @@ class ApiService {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('auth_token', token);
+      AppLogger.auth('Auth token saved to storage successfully');
     } catch (e) {
-      if (debugMode) debugPrint("Failed to save auth token: $e");
+      AppLogger.auth('Failed to save auth token to storage', isError: true);
     }
   }
 
@@ -54,58 +145,68 @@ class ApiService {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove('auth_token');
+      AppLogger.auth('Auth token cleared from storage');
     } catch (e) {
-      if (debugMode) debugPrint("Failed to clear auth token: $e");
+      AppLogger.auth('Failed to clear auth token from storage', isError: true);
     }
   }
 
-  // Test server connectivity
-  Future<bool> testConnection() async {
-    try {
-      if (debugMode) debugPrint("Testing connection to: $baseUrl");
-      
-      final response = await client.get(
-        Uri.parse("$baseUrl/health"),
-        headers: {"Content-Type": "application/json"},
-      ).timeout(Duration(seconds: 5));
-
-      if (debugMode) debugPrint("Connection test result: ${response.statusCode}");
-      return response.statusCode == 200 || response.statusCode == 404; // 404 is ok, means server is running
-    } catch (e) {
-      if (debugMode) debugPrint("Connection test failed: $e");
+  // Validate current token and handle auth errors
+  Future<bool> validateToken() async {
+    if (_authToken == null || _authToken!.isEmpty) {
+      AppLogger.auth('No token available for validation', isError: true);
       return false;
     }
-  }
 
-  // Debug token validation endpoint
-  Future<Map<String, dynamic>> debugToken() async {
     try {
+      AppLogger.auth('Validating current token: ${_maskToken(_authToken)}');
       final response = await client.get(
-        Uri.parse("$baseUrl$apiPrefix/auth/debug-token"),
+        Uri.parse("$baseUrl$apiPrefix/auth/me"),
         headers: headers,
       ).timeout(timeout);
 
       if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        if (debugMode) {
-          debugPrint("Token debug info: $data");
-        }
-        return {
-          "success": true,
-          "token_info": data,
-        };
+        AppLogger.auth('Token validation successful');
+        return true;
+      } else if (response.statusCode == 401 || response.statusCode == 403) {
+        AppLogger.auth('Token validation failed - ${response.statusCode} ${response.statusCode == 401 ? 'Unauthorized' : 'Forbidden'} (token may be corrupted)', isError: true);
+        await clearAuth(); // Clear invalid token
+        return false;
       }
 
-      throw HttpException("Token validation failed: ${response.statusCode}");
+      AppLogger.auth('Token validation failed with status: ${response.statusCode}', isError: true);
+      return false;
     } catch (e) {
-      if (debugMode) debugPrint("Token debug error: $e");
-      return {
-        "success": false,
-        "message": "Token validation failed",
-      };
+      AppLogger.auth('Token validation error: $e', isError: true);
+      // If validation fails due to network/server issues, don't clear the token
+      // It might be valid but server is unreachable
+      if (e.toString().contains('timeout') || e.toString().contains('connection')) {
+        AppLogger.auth('Network issue during validation - keeping token for retry');
+        return false;
+      }
+      // For other errors, clear the token as it might be corrupted
+      AppLogger.auth('Clearing potentially corrupted token due to validation error');
+      await clearAuth();
+      return false;
     }
   }
 
+  // Handle authentication errors consistently
+  Future<void> handleAuthError(int statusCode, String endpoint) async {
+    if (statusCode == 401 || statusCode == 403) {
+      AppLogger.auth('Auth error on $endpoint - clearing token and forcing re-login', isError: true);
+      await clearAuth();
+      // In a real app, you would also trigger a navigation to login screen
+      // For now, we just log the requirement
+      AppLogger.auth('User must re-login to continue using the app', isError: true);
+    }
+  }
+
+  // Check if user is currently authenticated (has valid token)
+  bool get isAuthenticated => _authToken != null && _authToken!.isNotEmpty;
+
+  // Get current auth token (masked for logging purposes)
+  String get currentTokenMasked => _maskToken(_authToken);
 
 
   // Authentication endpoints
@@ -118,9 +219,15 @@ class ApiService {
     String? emergencyPhone,
   }) async {
     try {
+      // Log the registration attempt with masked password (safe)
+      AppLogger.auth('Register attempt: $email | password: ${_maskPassword(password)}');
+      
+      final requestHeaders = {"Content-Type": "application/json"};
+      _logRequest('POST', '/auth/register', headers: requestHeaders);
+      
       final response = await client.post(
         Uri.parse("$baseUrl$apiPrefix/auth/register"),
-        headers: {"Content-Type": "application/json"},
+        headers: requestHeaders,
         body: jsonEncode({
           "email": email,
           "password": password,
@@ -130,6 +237,8 @@ class ApiService {
           if (emergencyPhone != null) "emergency_phone": emergencyPhone,
         }),
       ).timeout(timeout);
+
+      _logResponse('/auth/register', response.statusCode, body: response.body);
 
       if (response.statusCode == 200 || response.statusCode == 201) {
         final data = jsonDecode(response.body);
@@ -144,7 +253,7 @@ class ApiService {
       final errorData = jsonDecode(response.body);
       throw HttpException("Registration failed: ${errorData['detail'] ?? errorData['message'] ?? 'Unknown error'}");
     } catch (e) {
-      if (debugMode) debugPrint("Registration error: $e");
+      AppLogger.auth('User registration failed', isError: true);
       return {
         "success": false,
         "message": e is HttpException ? e.message : "Registration failed. Please check your connection.",
@@ -157,14 +266,22 @@ class ApiService {
     required String password,
   }) async {
     try {
+      // Log the login attempt with masked password (safe)
+      AppLogger.auth('Login attempt: $email | password: ${_maskPassword(password)}');
+      
+      final requestHeaders = {"Content-Type": "application/json"};
+      _logRequest('POST', '/auth/login', headers: requestHeaders);
+      
       final response = await client.post(
         Uri.parse("$baseUrl$apiPrefix/auth/login"),
-        headers: {"Content-Type": "application/json"},
+        headers: requestHeaders,
         body: jsonEncode({
           "email": email,
           "password": password,
         }),
       ).timeout(timeout);
+
+      _logResponse('/auth/login', response.statusCode, body: response.body);
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
@@ -175,13 +292,8 @@ class ApiService {
           throw HttpException("Invalid token received from server");
         }
         
-        // Log token info for debugging (first/last 10 chars only)
-        if (debugMode) {
-          final tokenPreview = token.length > 20 
-              ? "${token.substring(0, 10)}...${token.substring(token.length - 10)}" 
-              : token;
-          debugPrint("Login successful. Token preview: $tokenPreview (length: ${token.length})");
-        }
+        // Log token info for security (masked)
+        AppLogger.auth('Login successful - token received: ${_maskToken(token)}');
         
         await _saveAuthToken(token);
         return {
@@ -191,14 +303,13 @@ class ApiService {
           "user_id": data["user_id"],
           "email": data["email"],
           "role": data["role"] ?? "tourist",
-          "token_length": token.length, // For debugging
         };
       }
 
       final errorData = jsonDecode(response.body);
       throw HttpException("Login failed: ${errorData['detail'] ?? errorData['message'] ?? 'Invalid credentials'}");
     } catch (e) {
-      if (debugMode) debugPrint("Login error: $e");
+      AppLogger.auth('User login failed: $e', isError: true);
       return {
         "success": false,
         "message": e is HttpException ? e.message : "Login failed. Please check your connection.",
@@ -221,15 +332,9 @@ class ApiService {
         };
       } else if (response.statusCode == 403) {
         // Token might be corrupted or invalid
-        if (debugMode) {
-          debugPrint("403 Forbidden - Token might be corrupted. Current token: ${_authToken?.substring(0, 20)}...");
-        }
+        AppLogger.auth('Token validation failed - 403 Forbidden (token may be corrupted)', isError: true);
         
-        // Try debug token endpoint to verify token issues
-        final debugResult = await debugToken();
-        if (debugMode) {
-          debugPrint("Debug token result: $debugResult");
-        }
+        // Token validation failed with 403
         
         throw HttpException("Authentication failed. Please login again. (Token may be corrupted)");
       } else if (response.statusCode == 401) {
@@ -238,7 +343,7 @@ class ApiService {
 
       throw HttpException("Failed to get user profile: ${response.statusCode}");
     } catch (e) {
-      if (debugMode) debugPrint("Get user error: $e");
+      AppLogger.auth('Failed to get current user profile', isError: true);
       return {
         "success": false,
         "message": e is HttpException ? e.message : "Failed to load user profile.",
@@ -255,10 +360,13 @@ class ApiService {
     double? accuracy,
     DateTime? timestamp,
   }) async {
+    await _ensureInitialized(); // Ensure auth is initialized before API calls
+    
     try {
+      final requestHeaders = await safeHeaders;
       final response = await client.post(
         Uri.parse("$baseUrl$apiPrefix/location/update"),
-        headers: headers,
+        headers: requestHeaders,
         body: jsonEncode({
           "lat": lat,
           "lon": lon,
@@ -281,11 +389,19 @@ class ApiService {
           "lon": data["lon"],
           "timestamp": data["timestamp"],
         };
+      } else if (response.statusCode == 401 || response.statusCode == 403) {
+        await handleAuthError(response.statusCode, '/location/update');
+        throw HttpException(response.statusCode == 401 
+          ? "Authentication required. Please login again."
+          : "Access denied. Invalid token or permissions.");
       }
 
       throw HttpException("Failed to update location: ${response.statusCode}");
     } catch (e) {
-      if (debugMode) debugPrint("Location update error: $e");
+      AppLogger.location('Location update failed', isError: true);
+      if (e is HttpException && (e.message.contains('Authentication required') || e.message.contains('Access denied'))) {
+        rethrow; // Let auth errors bubble up
+      }
       return {
         "success": false,
         "message": "Failed to update location. Please check your connection.",
@@ -310,7 +426,7 @@ class ApiService {
 
       throw HttpException("Failed to load location history: ${response.statusCode}");
     } catch (e) {
-      if (debugMode) debugPrint("Get location history error: $e");
+      AppLogger.location('Failed to load location history', isError: true);
       return {
         "success": false,
         "message": "Failed to load location history.",
@@ -346,7 +462,7 @@ class ApiService {
 
       throw HttpException("Failed to start trip: ${response.statusCode}");
     } catch (e) {
-      if (debugMode) debugPrint("Start trip error: $e");
+      AppLogger.service('Trip start failed', isError: true);
       return {
         "success": false,
         "message": "Failed to start trip.",
@@ -373,7 +489,7 @@ class ApiService {
 
       throw HttpException("Failed to end trip: ${response.statusCode}");
     } catch (e) {
-      if (debugMode) debugPrint("End trip error: $e");
+      AppLogger.service('Trip end failed', isError: true);
       return {
         "success": false,
         "message": "Failed to end trip.",
@@ -398,7 +514,7 @@ class ApiService {
 
       throw HttpException("Failed to load trip history: ${response.statusCode}");
     } catch (e) {
-      if (debugMode) debugPrint("Get trip history error: $e");
+      AppLogger.service('Failed to load trip history', isError: true);
       return {
         "success": false,
         "message": "Failed to load trip history.",
@@ -408,44 +524,42 @@ class ApiService {
 
   // Safety and emergency endpoints
   Future<Map<String, dynamic>> getSafetyScore() async {
+    await _ensureInitialized(); // Ensure auth is initialized before API calls
+    
     try {
-      if (debugMode) debugPrint("Requesting safety score from: $baseUrl$apiPrefix/safety/score");
+      final requestHeaders = await safeHeaders;
+      _logRequest('GET', '/safety/score', headers: requestHeaders);
       
       final response = await client.get(
         Uri.parse("$baseUrl$apiPrefix/safety/score"),
-        headers: headers,
+        headers: requestHeaders,
       ).timeout(timeout);
 
-      if (debugMode) debugPrint("Safety score response status: ${response.statusCode}");
-      if (debugMode) debugPrint("Safety score response body: ${response.body}");
+      _logResponse('/safety/score', response.statusCode, body: response.body);
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
+        AppLogger.info('Safety score retrieved successfully');
         return {
           "success": true,
           "safety_score": data["safety_score"],
           "risk_level": data["risk_level"],
           "last_updated": data["last_updated"],
         };
-      } else if (response.statusCode == 401) {
-        if (debugMode) debugPrint("Authentication error: ${response.body}");
+      } else if (response.statusCode == 401 || response.statusCode == 403) {
+        await handleAuthError(response.statusCode, '/safety/score');
         return {
           "success": false,
-          "message": "Authentication required. Please login again.",
-          "auth_error": true,
-        };
-      } else if (response.statusCode == 403) {
-        if (debugMode) debugPrint("Access forbidden: ${response.body}");
-        return {
-          "success": false,
-          "message": "Access denied. Invalid token or permissions.",
+          "message": response.statusCode == 401 
+            ? "Authentication required. Please login again."
+            : "Access denied. Invalid token or permissions.",
           "auth_error": true,
         };
       }
 
       throw HttpException("Failed to get safety score: ${response.statusCode} - ${response.body}");
     } catch (e) {
-      if (debugMode) debugPrint("Get safety score error: $e");
+      AppLogger.error('Safety score request failed', error: e);
       return {
         "success": false,
         "message": "Failed to get safety score: ${e.toString()}",
@@ -454,29 +568,60 @@ class ApiService {
   }
 
   Future<Map<String, dynamic>> triggerSOS() async {
+    await _ensureInitialized(); // Ensure auth is initialized before API calls
+    
     try {
-      final response = await client.post(
-        Uri.parse("$baseUrl$apiPrefix/sos/trigger"),
-        headers: headers,
-      ).timeout(timeout);
+      final requestHeaders = await safeHeaders;
+      _logRequest('POST', '/sos/trigger', headers: requestHeaders);
+
+      final response = await client
+          .post(
+            Uri.parse("$baseUrl$apiPrefix/sos/trigger"),
+            headers: requestHeaders,
+          )
+          .timeout(timeout);
+
+      _logResponse('/sos/trigger', response.statusCode, body: response.body);
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
+        AppLogger.emergency('SOS triggered successfully');
         return {
           "success": true,
-          "status": data["status"],
+          "status": data["status"] ?? "sos_triggered",
           "alert_id": data["alert_id"],
           "notifications_sent": data["notifications_sent"],
           "timestamp": data["timestamp"],
         };
       }
 
-      throw HttpException("Failed to trigger SOS: ${response.statusCode}");
+      if (response.statusCode == 401 || response.statusCode == 403) {
+        await handleAuthError(response.statusCode, '/sos/trigger');
+        final msg = response.statusCode == 401
+            ? "Authentication required. Please login again."
+            : "Access denied. Invalid token or permissions.";
+        return {
+          "success": false,
+          "message": msg,
+          "auth_error": true,
+          "status_code": response.statusCode,
+        };
+      }
+
+      // Try to surface server-provided message if available
+      String? serverMsg;
+      try {
+        final body = jsonDecode(response.body);
+        serverMsg = body['detail'] ?? body['message'];
+      } catch (_) {}
+
+      throw HttpException(
+          "Failed to trigger SOS: ${response.statusCode}${serverMsg != null ? ' - $serverMsg' : ''}");
     } catch (e) {
-      if (debugMode) debugPrint("SOS trigger error: $e");
+      AppLogger.emergency('SOS trigger failed: $e', isError: true);
       return {
         "success": false,
-        "message": "Failed to send SOS alert. Please try again.",
+        "message": "Failed to send SOS alert. ${e is HttpException ? e.message : 'Please try again.'}",
       };
     }
   }
@@ -504,7 +649,7 @@ class ApiService {
 
       throw HttpException("Search failed: ${response.statusCode}");
     } catch (e) {
-      if (debugMode) debugPrint("Location search error: $e");
+      AppLogger.service('Location search failed', isError: true);
       return [];
     }
   }
@@ -514,10 +659,13 @@ class ApiService {
     required double lat,
     required double lon,
   }) async {
+    await _ensureInitialized(); // Ensure auth is initialized before API calls
+    
     try {
+      final requestHeaders = await safeHeaders;
       final response = await client.post(
         Uri.parse("$baseUrl$apiPrefix/ai/geofence/check"),
-        headers: headers,
+        headers: requestHeaders,
         body: jsonEncode({
           "lat": lat,
           "lon": lon,
@@ -533,11 +681,19 @@ class ApiService {
           "distance_to_zone": data["distance_to_zone"],
           "recommendations": data["recommendations"],
         };
+      } else if (response.statusCode == 401 || response.statusCode == 403) {
+        await handleAuthError(response.statusCode, '/ai/geofence/check');
+        throw HttpException(response.statusCode == 401 
+          ? "Authentication required. Please login again."
+          : "Access denied. Invalid token or permissions.");
       }
 
       throw HttpException("Failed to check geofence: ${response.statusCode}");
     } catch (e) {
-      if (debugMode) debugPrint("Geofence check error: $e");
+      AppLogger.location('Geofence check failed', isError: true);
+      if (e is HttpException && (e.message.contains('Authentication required') || e.message.contains('Access denied'))) {
+        rethrow; // Let auth errors bubble up
+      }
       return {
         "success": false,
         "status": "safe",
@@ -549,20 +705,37 @@ class ApiService {
   }
 
   Future<List<Map<String, dynamic>>> getSafetyZones() async {
+    await _ensureInitialized(); // Ensure auth is initialized before API calls
+    
     try {
+      final requestHeaders = await safeHeaders;
+      _logRequest('GET', '/heatmap/zones/public', headers: requestHeaders);
+      
       final response = await client.get(
-        Uri.parse("$baseUrl$apiPrefix/zones/list"),
-        headers: headers,
+        Uri.parse("$baseUrl$apiPrefix/heatmap/zones/public"),
+        headers: requestHeaders,
       ).timeout(timeout);
 
+      _logResponse('/heatmap/zones/public', response.statusCode, body: response.body);
+
       if (response.statusCode == 200) {
-        final List<dynamic> data = jsonDecode(response.body);
-        return data.cast<Map<String, dynamic>>();
+        final Map<String, dynamic> data = jsonDecode(response.body);
+        final List<dynamic> zones = data['zones'] ?? [];
+        AppLogger.info('Safety zones retrieved successfully (${zones.length} zones)');
+        return zones.cast<Map<String, dynamic>>();
+      } else if (response.statusCode == 401 || response.statusCode == 403) {
+        await handleAuthError(response.statusCode, '/heatmap/zones/public');
+        throw HttpException(response.statusCode == 401 
+          ? "Authentication required. Please login again."
+          : "Access denied. Invalid token or permissions.");
       }
 
-      throw HttpException("Failed to load safety zones: ${response.statusCode}");
+      throw HttpException("Failed to load safety zones: ${response.statusCode} - ${response.body}");
     } catch (e) {
-      if (debugMode) debugPrint("Get safety zones error: $e");
+      AppLogger.location('Failed to load safety zones', isError: true);
+      if (e is HttpException && (e.message.contains('Authentication required') || e.message.contains('Access denied'))) {
+        rethrow; // Let auth errors bubble up
+      }
       return [];
     }
   }
@@ -576,11 +749,16 @@ class ApiService {
     double? maxLng,
   }) async {
     try {
+      final requestHeaders = await safeHeaders;
+      _logRequest('GET', '/alerts/recent', headers: requestHeaders);
+      
       // Get recent alerts to generate heatmap data
       final response = await client.get(
         Uri.parse("$baseUrl$apiPrefix/alerts/recent?limit=1000&severity=high"),
-        headers: headers,
+        headers: requestHeaders,
       ).timeout(timeout);
+      
+      _logResponse('/alerts/recent', response.statusCode, body: response.body);
       
       if (response.statusCode == 200) {
         final List<dynamic> data = jsonDecode(response.body);
@@ -614,12 +792,16 @@ class ApiService {
         }).toList();
 
         return _aggregatePanicAlertsFromBackend(panicAlerts);
+      } else if (response.statusCode == 401 || response.statusCode == 403) {
+        // Tourist users don't have access to alert data - this is expected
+        AppLogger.auth('Alert data access denied (role: tourist) - returning empty heatmap', isError: false);
+        return []; // Return empty list gracefully
       }
 
-      if (debugMode) debugPrint("Panic alert API failed with status: ${response.statusCode}");
+      AppLogger.api('Panic alert heatmap request failed: ${response.statusCode}', isError: true);
       return [];
     } catch (e) {
-      if (debugMode) debugPrint("Panic alert heat data error: $e");
+      AppLogger.api('Panic alert heat data request failed', isError: true);
       return [];
     }
   }
@@ -679,11 +861,43 @@ class ApiService {
 
   // Additional missing methods for compatibility
   Future<List<RestrictedZone>> getRestrictedZones() async {
+    await _ensureInitialized(); // Ensure auth is initialized before API calls
+    
     try {
-      final response = await getSafetyZones();
-      return response.map<RestrictedZone>((item) => RestrictedZone.fromJson(item)).toList();
+      // Use the heatmap zones endpoint which provides better data structure
+      final requestHeaders = await safeHeaders;
+      _logRequest('GET', '/heatmap/zones/public', headers: requestHeaders);
+      
+      final response = await client.get(
+        Uri.parse("$baseUrl$apiPrefix/heatmap/zones/public"),
+        headers: requestHeaders,
+      ).timeout(timeout);
+
+      _logResponse('/heatmap/zones/public', response.statusCode, body: response.body);
+
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> data = jsonDecode(response.body);
+        final List<dynamic> zones = data['zones'] ?? [];
+        
+        final List<RestrictedZone> restrictedZones = zones
+            .map<RestrictedZone>((item) => RestrictedZone.fromJson(item))
+            .toList();
+        
+        AppLogger.info('Loaded ${restrictedZones.length} restricted zones from heatmap API');
+        return restrictedZones;
+      } else if (response.statusCode == 401 || response.statusCode == 403) {
+        await handleAuthError(response.statusCode, '/heatmap/zones/public');
+        throw HttpException(response.statusCode == 401 
+          ? "Authentication required. Please login again."
+          : "Access denied. Invalid token or permissions.");
+      }
+
+      throw HttpException("Failed to load restricted zones: ${response.statusCode} - ${response.body}");
     } catch (e) {
-      if (debugMode) debugPrint("Get restricted zones error: $e");
+      AppLogger.location('Failed to load restricted zones from heatmap API', isError: true);
+      
+      // Return empty list instead of crashing the app
+      AppLogger.location('Returning empty restricted zones list for graceful degradation', isError: true);
       return [];
     }
   }

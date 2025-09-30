@@ -67,13 +67,13 @@ class _ModernSidebarState extends State<ModernSidebar>
           end: Alignment.bottomRight,
           colors: [
             AppColors.redPrimary,
-            AppColors.redPrimary.withOpacity(0.8),
-            AppColors.redPrimary.withOpacity(0.9),
+            AppColors.redPrimary.withValues(alpha: 0.8),
+            AppColors.redPrimary.withValues(alpha: 0.9),
           ],
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.15),
+            color: Colors.black.withValues(alpha: 0.15),
             blurRadius: 20,
             offset: const Offset(5, 0),
           ),
@@ -116,13 +116,13 @@ class _ModernSidebarState extends State<ModernSidebar>
                 shape: BoxShape.circle,
                 gradient: LinearGradient(
                   colors: [
-                    Colors.white.withOpacity(0.3),
-                    Colors.white.withOpacity(0.1),
+                    Colors.white.withValues(alpha: 0.3),
+                    Colors.white.withValues(alpha: 0.1),
                   ],
                 ),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.white.withOpacity(0.3),
+                    color: Colors.white.withValues(alpha: 0.3),
                     blurRadius: 20,
                     spreadRadius: 2,
                   ),
@@ -161,10 +161,10 @@ class _ModernSidebarState extends State<ModernSidebar>
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
               decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.2),
+                color: Colors.white.withValues(alpha: 0.2),
                 borderRadius: BorderRadius.circular(20),
                 border: Border.all(
-                  color: Colors.white.withOpacity(0.3),
+                  color: Colors.white.withValues(alpha: 0.3),
                   width: 1,
                 ),
               ),
@@ -232,9 +232,9 @@ class _ModernSidebarState extends State<ModernSidebar>
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(16),
-              color: Colors.white.withOpacity(0.1),
+              color: Colors.white.withValues(alpha: 0.1),
               border: Border.all(
-                color: Colors.white.withOpacity(0.2),
+                color: Colors.white.withValues(alpha: 0.2),
                 width: 1,
               ),
             ),
@@ -243,7 +243,7 @@ class _ModernSidebarState extends State<ModernSidebar>
                 Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.2),
+                    color: Colors.white.withValues(alpha: 0.2),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Icon(
@@ -265,7 +265,7 @@ class _ModernSidebarState extends State<ModernSidebar>
                 ),
                 Icon(
                   Icons.arrow_forward_ios_rounded,
-                  color: Colors.white.withOpacity(0.7),
+                  color: Colors.white.withValues(alpha: 0.7),
                   size: 16,
                 ),
               ],
@@ -293,7 +293,7 @@ class _ModernSidebarState extends State<ModernSidebar>
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(16),
                   border: Border.all(
-                    color: Colors.white.withOpacity(0.3),
+                    color: Colors.white.withValues(alpha: 0.3),
                     width: 1,
                   ),
                 ),
@@ -302,7 +302,7 @@ class _ModernSidebarState extends State<ModernSidebar>
                   children: [
                     Icon(
                       Icons.logout_rounded,
-                      color: Colors.white.withOpacity(0.9),
+                      color: Colors.white.withValues(alpha: 0.9),
                       size: 20,
                     ),
                     const SizedBox(width: 8),
@@ -311,7 +311,7 @@ class _ModernSidebarState extends State<ModernSidebar>
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w600,
-                        color: Colors.white.withOpacity(0.9),
+                        color: Colors.white.withValues(alpha: 0.9),
                       ),
                     ),
                   ],
@@ -327,7 +327,7 @@ class _ModernSidebarState extends State<ModernSidebar>
             'Tourist Safety v1.0.0',
             style: TextStyle(
               fontSize: 12,
-              color: Colors.white.withOpacity(0.7),
+              color: Colors.white.withValues(alpha: 0.7),
             ),
           ),
         ],

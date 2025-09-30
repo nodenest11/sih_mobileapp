@@ -6,12 +6,18 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'screens/login_screen.dart';
 import 'screens/onboarding_screen.dart';
 import 'services/api_service.dart';
+import 'utils/logger.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
   // Load environment variables
   await dotenv.load(fileName: ".env");
+  
+  // Initialize logging and verify configuration
+  AppLogger.info('🚀 SafeHorizon Tourist App starting up...');
+  AppLogger.api('🌐 API Base URL: ${dotenv.env['API_BASE_URL']}');
+  AppLogger.service('🔧 Debug mode: ${dotenv.env['DEBUG_MODE']}');
   
   await _initializeApp();
   
@@ -25,9 +31,13 @@ Future<void> _initializeApp() async {
     DeviceOrientation.portraitDown,
   ]);
   
+  AppLogger.info('App orientation set to portrait only');
+  
   // Initialize API service and find working server
   final apiService = ApiService();
   await apiService.initializeAuth();
+  
+  AppLogger.info('API service initialized');
   
   // Don't initialize background service on app start to avoid crashes
   // It will be initialized when user logs in and starts tracking

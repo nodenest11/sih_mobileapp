@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'package:latlong2/latlong.dart';
 
 class Alert {
@@ -117,6 +118,9 @@ class RestrictedZone {
   final List<LatLng> polygonCoordinates;
   final ZoneType type;
   final String? warningMessage;
+  final LatLng? center;
+  final double? radiusMeters;
+  final String? safetyRecommendation;
 
   RestrictedZone({
     required this.id,
@@ -125,27 +129,123 @@ class RestrictedZone {
     required this.polygonCoordinates,
     required this.type,
     this.warningMessage,
+    this.center,
+    this.radiusMeters,
+    this.safetyRecommendation,
   });
 
   factory RestrictedZone.fromJson(Map<String, dynamic> json) {
     List<LatLng> coordinates = [];
-    if (json['polygon_coordinates'] != null) {
+    LatLng? centerPoint;
+    double? radius;
+    
+    // Handle the actual API response format with center and radius
+    if (json['center'] != null && json['center']['lat'] != null && json['center']['lon'] != null) {
+      centerPoint = LatLng(
+        json['center']['lat'].toDouble(),
+        json['center']['lon'].toDouble(),
+      );
+      radius = json['radius_meters']?.toDouble() ?? 1000.0;
+      
+      // Generate circular polygon from center and radius
+      coordinates = _generateCircularPolygon(centerPoint, radius!);
+    } else if (json['polygon_coordinates'] != null) {
+      // Handle polygon coordinates if provided
       for (var coord in json['polygon_coordinates']) {
         coordinates.add(LatLng(coord['lat'].toDouble(), coord['lon'].toDouble()));
       }
+    } else {
+      // Fallback: Generate mock polygon coordinates
+      coordinates = _generateMockPolygon(json['id']?.toString() ?? '0');
     }
 
     return RestrictedZone(
-      id: json['id'],
-      name: json['name'],
+      id: json['id']?.toString() ?? '',
+      name: json['name'] ?? 'Unknown Zone',
       description: json['description'] ?? '',
       polygonCoordinates: coordinates,
-      type: ZoneType.values.firstWhere(
-        (e) => e.name == json['type'],
-        orElse: () => ZoneType.restricted,
-      ),
-      warningMessage: json['warning_message'],
+      type: _parseZoneType(json['type']),
+      warningMessage: json['warning_message'] ?? json['safety_recommendation'],
+      center: centerPoint,
+      radiusMeters: radius,
+      safetyRecommendation: json['safety_recommendation'],
     );
+  }
+
+  static ZoneType _parseZoneType(dynamic type) {
+    if (type == null) return ZoneType.restricted;
+    
+    String typeStr = type.toString().toLowerCase();
+    switch (typeStr) {
+      case 'restricted':
+        return ZoneType.restricted;
+      case 'high_risk':
+      case 'highrisk':
+      case 'high-risk':
+      case 'risky':
+        return ZoneType.highRisk;
+      case 'dangerous':
+        return ZoneType.dangerous;
+      case 'caution':
+      case 'safe':
+        return ZoneType.caution;
+      default:
+        return ZoneType.restricted;
+    }
+  }
+
+  static List<LatLng> _generateCircularPolygon(LatLng center, double radiusMeters) {
+    // Convert radius from meters to degrees (approximate)
+    // 1 degree ≈ 111,000 meters at equator
+    double radiusInDegrees = radiusMeters / 111000.0;
+    
+    List<LatLng> polygon = [];
+    int numPoints = 16; // More points for smoother circle
+    
+    for (int i = 0; i < numPoints; i++) {
+      double angle = (i * 360 / numPoints) * (math.pi / 180);
+      double lat = center.latitude + radiusInDegrees * math.cos(angle);
+      double lon = center.longitude + radiusInDegrees * math.sin(angle) / math.cos(center.latitude * (math.pi / 180));
+      polygon.add(LatLng(lat, lon));
+    }
+    
+    return polygon;
+  }
+
+  static List<LatLng> _generateMockPolygon(String zoneId) {
+    // Generate mock coordinates based on zone ID for demonstration
+    // In a real app, these would come from the API or be configured
+    
+    // Base coordinates around different areas (example locations)
+    List<Map<String, double>> baseLocations = [
+      {'lat': 28.6139, 'lon': 77.2090}, // Delhi
+      {'lat': 19.0760, 'lon': 72.8777}, // Mumbai
+      {'lat': 12.9716, 'lon': 77.5946}, // Bangalore
+      {'lat': 13.0827, 'lon': 80.2707}, // Chennai
+      {'lat': 22.5726, 'lon': 88.3639}, // Kolkata
+      {'lat': 23.0225, 'lon': 72.5714}, // Ahmedabad
+      {'lat': 18.5204, 'lon': 73.8567}, // Pune
+      {'lat': 26.9124, 'lon': 75.7873}, // Jaipur
+    ];
+    
+    int index = int.tryParse(zoneId) ?? 0;
+    Map<String, double> baseLocation = baseLocations[index % baseLocations.length];
+    
+    double centerLat = baseLocation['lat']!;
+    double centerLon = baseLocation['lon']!;
+    
+    // Create a circular polygon with radius of ~1km
+    double radiusInDegrees = 0.009; // Approximately 1km
+    List<LatLng> polygon = [];
+    
+    for (int i = 0; i < 8; i++) {
+      double angle = (i * 45) * (math.pi / 180); // 45-degree increments
+      double lat = centerLat + radiusInDegrees * math.cos(angle);
+      double lon = centerLon + radiusInDegrees * math.sin(angle);
+      polygon.add(LatLng(lat, lon));
+    }
+    
+    return polygon;
   }
 
   Map<String, dynamic> toJson() {
@@ -167,6 +267,7 @@ enum ZoneType {
   highRisk,
   dangerous,
   caution,
+  safe, // Added safe zone type to match API response
 }
 
 class PanicAlert {

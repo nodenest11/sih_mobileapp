@@ -240,14 +240,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ),
                   const SizedBox(height: 12),
                 ],
-                if (widget.tourist.email != null) ...[
-                  _buildInfoRow(
-                    icon: Icons.email_outlined,
-                    label: 'Email',
-                    value: widget.tourist.email!,
-                  ),
-                  const SizedBox(height: 12),
-                ],
+                _buildInfoRow(
+                  icon: Icons.email_outlined,
+                  label: 'Email',
+                  value: widget.tourist.email,
+                ),
+                const SizedBox(height: 12),
                 _buildInfoRow(
                   icon: Icons.calendar_today_outlined,
                   label: 'Registered',

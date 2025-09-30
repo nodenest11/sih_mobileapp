@@ -81,6 +81,8 @@ class _GeofenceAlertDialogState extends State<GeofenceAlertDialog>
         return Colors.amber.shade700;
       case ZoneType.caution:
         return Colors.blue.shade600;
+      case ZoneType.safe:
+        return Colors.green.shade600;
     }
   }
 
@@ -94,6 +96,8 @@ class _GeofenceAlertDialogState extends State<GeofenceAlertDialog>
         return Icons.do_not_disturb;
       case ZoneType.caution:
         return Icons.info;
+      case ZoneType.safe:
+        return Icons.check_circle;
     }
   }
 
@@ -111,6 +115,8 @@ class _GeofenceAlertDialogState extends State<GeofenceAlertDialog>
         return "🚫 RESTRICTED AREA";
       case ZoneType.caution:
         return "ℹ️ CAUTION AREA";
+      case ZoneType.safe:
+        return "✅ SAFE AREA";
     }
   }
 
@@ -152,7 +158,7 @@ class _GeofenceAlertDialogState extends State<GeofenceAlertDialog>
   Widget build(BuildContext context) {
     final isExit = widget.eventType == GeofenceEventType.exit;
     final bgColor = isExit ? Colors.green.shade50 : Colors.red.shade50;
-    final borderColor = isExit ? Colors.green.shade200 : _getZoneColor().withOpacity(0.3);
+    final borderColor = isExit ? Colors.green.shade200 : _getZoneColor().withValues(alpha: 0.3);
 
     return ScaleTransition(
       scale: _scaleAnimation,
@@ -176,7 +182,7 @@ class _GeofenceAlertDialogState extends State<GeofenceAlertDialog>
                 width: double.infinity,
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
-                  color: isExit ? Colors.green.shade100 : _getZoneColor().withOpacity(0.1),
+                  color: isExit ? Colors.green.shade100 : _getZoneColor().withValues(alpha: 0.1),
                   borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
                 ),
                 child: Column(
@@ -264,7 +270,7 @@ class _GeofenceAlertDialogState extends State<GeofenceAlertDialog>
                             if (await Vibration.hasVibrator()) {
                               await Vibration.vibrate(duration: 200);
                             }
-                            Navigator.of(context).pop();
+                            if (mounted) Navigator.of(context).pop();
                           },
                           icon: const Icon(Icons.vibration, size: 18),
                           label: const Text("Remind Me"),
@@ -312,7 +318,7 @@ class GeofenceIndicator extends StatelessWidget {
   Color _getHighestRiskColor() {
     if (currentZones.isEmpty) return Colors.green;
     
-    ZoneType highestRisk = ZoneType.caution;
+    ZoneType highestRisk = ZoneType.safe;
     for (final zone in currentZones) {
       switch (zone.type) {
         case ZoneType.dangerous:
@@ -321,9 +327,12 @@ class GeofenceIndicator extends StatelessWidget {
           if (highestRisk != ZoneType.dangerous) highestRisk = ZoneType.highRisk;
           break;
         case ZoneType.restricted:
-          if (highestRisk == ZoneType.caution) highestRisk = ZoneType.restricted;
+          if (highestRisk == ZoneType.caution || highestRisk == ZoneType.safe) highestRisk = ZoneType.restricted;
           break;
         case ZoneType.caution:
+          if (highestRisk == ZoneType.safe) highestRisk = ZoneType.caution;
+          break;
+        case ZoneType.safe:
           break;
       }
     }
@@ -337,6 +346,8 @@ class GeofenceIndicator extends StatelessWidget {
         return Colors.amber.shade700;
       case ZoneType.caution:
         return Colors.blue.shade600;
+      case ZoneType.safe:
+        return Colors.green.shade600;
     }
   }
 
@@ -357,7 +368,7 @@ class GeofenceIndicator extends StatelessWidget {
         duration: const Duration(milliseconds: 300),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
         decoration: BoxDecoration(
-          color: isInZone ? color.withOpacity(0.1) : Colors.green.withOpacity(0.1),
+          color: isInZone ? color.withValues(alpha: 0.1) : Colors.green.withValues(alpha: 0.1),
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
             color: isInZone ? color : Colors.green,

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/api_service.dart';
 import '../theme/app_theme.dart';
+
 import 'login_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -343,6 +344,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
               );
             },
           ),
+
+          // Debug section (only in debug mode)
+          if (ApiService.debugMode) ...[
+            _buildSectionHeader('Debug & Testing', Icons.bug_report),
+
+          ],
 
           const SizedBox(height: 24),
           

@@ -105,7 +105,7 @@ class _TripHistoryScreenState extends State<TripHistoryScreen> {
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(8),
           gradient: LinearGradient(
-            colors: [AppColors.redPrimary.withOpacity(0.1), Colors.white],
+            colors: [AppColors.redPrimary.withValues(alpha: 0.1), Colors.white],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),

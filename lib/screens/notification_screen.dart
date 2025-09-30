@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../models/alert.dart';
 import '../services/api_service.dart';
+import '../utils/logger.dart';
 
 class NotificationScreen extends StatefulWidget {
   final String touristId;
@@ -88,7 +89,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
         });
       } catch (e) {
         // Handle error silently for now
-        debugPrint('Failed to mark alerts as read: $e');
+        AppLogger.warning('Failed to mark alerts as read');
       }
     }
   }
@@ -269,7 +270,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
         side: BorderSide(
-          color: _getSeverityColor(alert.severity).withOpacity(0.3),
+          color: _getSeverityColor(alert.severity).withValues(alpha: 0.3),
           width: 1,
         ),
       ),
@@ -287,7 +288,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
                   Container(
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
-                      color: _getSeverityColor(alert.severity).withOpacity(0.1),
+                      color: _getSeverityColor(alert.severity).withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Icon(
@@ -359,10 +360,10 @@ class _NotificationScreenState extends State<NotificationScreen> {
                                 vertical: 2,
                               ),
                               decoration: BoxDecoration(
-                                color: _getTypeColor(alert.type).withOpacity(0.1),
+                                color: _getTypeColor(alert.type).withValues(alpha: 0.1),
                                 borderRadius: BorderRadius.circular(12),
                                 border: Border.all(
-                                  color: _getTypeColor(alert.type).withOpacity(0.3),
+                                  color: _getTypeColor(alert.type).withValues(alpha: 0.3),
                                 ),
                               ),
                               child: Text(
@@ -405,7 +406,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
             Container(
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
-                color: _getSeverityColor(alert.severity).withOpacity(0.1),
+                color: _getSeverityColor(alert.severity).withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Icon(
@@ -465,7 +466,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
               decoration: BoxDecoration(
-                color: _getSeverityColor(alert.severity).withOpacity(0.1),
+                color: _getSeverityColor(alert.severity).withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(20),
               ),
               child: Text(

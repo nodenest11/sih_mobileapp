@@ -1,9 +1,9 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../services/api_service.dart';
 import '../models/tourist.dart';
 import '../widgets/modern_app_wrapper.dart';
+import '../utils/logger.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -44,20 +44,25 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Future<void> _checkExistingUser() async {
     await _apiService.initializeAuth();
-    final response = await _apiService.getCurrentUser();
     
-    if (response['success'] == true) {
-      final userData = response['user'];
-      final tourist = Tourist.fromJson(userData);
+    // Only try to get current user if we have a valid token
+    if (_apiService.isAuthenticated) {
+      final response = await _apiService.getCurrentUser();
       
-      if (mounted) {
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(
-            builder: (context) => ModernAppWrapper(tourist: tourist),
-          ),
-        );
+      if (response['success'] == true) {
+        final userData = response['user'];
+        final tourist = Tourist.fromJson(userData);
+        
+        if (mounted) {
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(
+              builder: (context) => ModernAppWrapper(tourist: tourist),
+            ),
+          );
+        }
       }
     }
+    // If no valid token or getCurrentUser fails, user stays on login screen
   }
 
   Future<void> _login() async {
@@ -74,10 +79,8 @@ class _LoginScreenState extends State<LoginScreen> {
       );
 
       if (response['success'] == true) {
-        // Show token info for debugging
-        if (response['token_length'] != null) {
-          debugPrint('Login successful! Token length: ${response['token_length']}');
-        }
+        // Log successful authentication
+        AppLogger.auth('User login successful - token received');
         
         // Get current user profile with enhanced error handling
         final userResponse = await _apiService.getCurrentUser();

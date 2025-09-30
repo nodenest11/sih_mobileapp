@@ -7,6 +7,8 @@ import '../services/api_service.dart';
 import '../services/location_service.dart';
 import '../services/panic_service.dart';
 import '../services/geofencing_service.dart';
+import '../services/safety_score_manager.dart';
+import '../utils/logger.dart';
 // import 'panic_result_screen.dart'; // No longer needed directly; result navigation handled via countdown screen
 import 'panic_countdown_screen.dart';
 import 'notification_screen.dart';
@@ -45,6 +47,10 @@ class _HomeScreenState extends State<HomeScreen> {
   SafetyScore? _safetyScore;
   List<Alert> _alerts = [];
   bool _isLoadingSafetyScore = false;
+  bool _safetyScoreOfflineMode = false;
+  int _safetyScoreRetryCount = 0;
+  static const int _maxRetryAttempts = 3;
+  Timer? _safetyScoreRefreshTimer;
   bool _isLoadingAlerts = false;
   bool _isLoadingLocation = false;
   String _locationStatus = 'Your location will be sharing';
@@ -56,7 +62,16 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    _initializeServices();
+    AppLogger.service('🏠 HomeScreen initializing for tourist: ${widget.tourist.id}');
+    AppLogger.service('🔧 DEBUG_MODE enabled: ${const bool.fromEnvironment('dart.vm.product') == false}');
+    _initializeApp();
+  }
+
+  Future<void> _initializeApp() async {
+    // First, initialize services and auth
+    await _initializeServices();
+    
+    // Then load data that requires authentication
     _loadSafetyScore();
     _loadAlerts();
     _getCurrentLocation();
@@ -66,6 +81,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void dispose() {
     _panicTimer?.cancel();
+    _safetyScoreRefreshTimer?.cancel();
     _locationService.dispose();
     _geofencingService.stopMonitoring();
     super.dispose();
@@ -90,6 +106,10 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _initializeServices() async {
+    // Initialize API service and load auth token first
+    AppLogger.service('🔧 Initializing API service and loading auth token...');
+    await _apiService.initializeAuth();
+    
     // Start location tracking
     await _locationService.startTracking();
     
@@ -163,40 +183,244 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _loadSafetyScore() async {
+    AppLogger.api('🎯 Enhanced safety score loading for tourist: ${widget.tourist.id}');
+    
+    if (_isLoadingSafetyScore) {
+      AppLogger.api('⏳ Safety score loading already in progress, skipping...');
+      return;
+    }
+
     setState(() {
       _isLoadingSafetyScore = true;
+      _safetyScoreOfflineMode = false;
     });
 
     try {
-      final response = await _apiService.getSafetyScore();
-      if (response['success'] == true) {
-        final score = SafetyScore(
-          touristId: widget.tourist.id,
-          score: response['safety_score'],
-          level: response['risk_level'], 
-          description: _getSafetyDescription(response['safety_score']),
-          updatedAt: DateTime.tryParse(response['last_updated'] ?? '') ?? DateTime.now(),
-        );
-        setState(() {
-          _safetyScore = score;
-          _isLoadingSafetyScore = false;
-        });
+      // First, try to get cached data for immediate display
+      Map<String, dynamic>? cachedScore = await SafetyScoreManager.getCachedSafetyScore();
+      if (cachedScore != null && _safetyScore == null) {
+        AppLogger.api('⚡ Displaying cached safety score while loading fresh data');
+        _updateSafetyScoreUI(cachedScore, isFromCache: true);
+      }
+
+      // Attempt to load fresh data with retry logic
+      Map<String, dynamic>? freshScore = await _loadSafetyScoreWithRetry();
+      
+      if (freshScore != null) {
+        // Success - use fresh data
+        AppLogger.api('✅ Fresh safety score loaded successfully');
+        await SafetyScoreManager.cacheSafetyScore(freshScore);
+        _updateSafetyScoreUI(freshScore);
+        _safetyScoreRetryCount = 0; // Reset retry count on success
+        _schedulePeriodicRefresh();
       } else {
-        throw Exception('Failed to load safety score');
+        // Failed - try intelligent offline calculation
+        AppLogger.warning('⚠️ API failed, attempting offline calculation...');
+        Map<String, dynamic>? offlineScore = await _calculateOfflineSafetyScore();
+        
+        if (offlineScore != null) {
+          AppLogger.api('🔋 Using offline safety score calculation');
+          _updateSafetyScoreUI(offlineScore, isOffline: true);
+        } else if (cachedScore != null) {
+          AppLogger.api('💾 Falling back to cached data');
+          _updateSafetyScoreUI(cachedScore, isFromCache: true);
+        } else {
+          // Last resort - show default safe score with warning
+          _showFallbackSafetyScore();
+        }
       }
     } catch (e) {
+      AppLogger.error('🚨 Critical error in safety score loading: $e');
+      _handleSafetyScoreError(e);
+    } finally {
       setState(() {
         _isLoadingSafetyScore = false;
       });
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to load safety score: $e'),
-            backgroundColor: Colors.red,
-          ),
+    }
+  }
+
+  /// Load safety score with intelligent retry logic
+  Future<Map<String, dynamic>?> _loadSafetyScoreWithRetry() async {
+    for (int attempt = 1; attempt <= _maxRetryAttempts; attempt++) {
+      try {
+        AppLogger.api('📡 Attempt $attempt/$_maxRetryAttempts: Calling getSafetyScore API...');
+        
+        final response = await _apiService.getSafetyScore().timeout(
+          Duration(seconds: 10 + (attempt * 5)), // Progressive timeout
         );
+        
+        AppLogger.api('📋 Received response: $response');
+        
+        if (response['success'] == true) {
+          AppLogger.api('✅ API call successful on attempt $attempt');
+          return {
+            "success": true,
+            "safety_score": response['safety_score'],
+            "risk_level": response['risk_level'],
+            "last_updated": response['last_updated'],
+            "source": "api",
+          };
+        } else if (response['auth_error'] == true) {
+          AppLogger.error('🚫 Authentication error - stopping retry attempts');
+          return null; // Don't retry auth errors
+        } else {
+          AppLogger.warning('⚠️ API returned success=false on attempt $attempt: $response');
+        }
+      } catch (e) {
+        AppLogger.warning('🔄 Attempt $attempt failed: $e');
+        
+        if (attempt < _maxRetryAttempts) {
+          int delaySeconds = attempt * 2; // Progressive delay: 2s, 4s, 6s
+          AppLogger.api('⏱️ Waiting ${delaySeconds}s before retry...');
+          await Future.delayed(Duration(seconds: delaySeconds));
+        }
       }
     }
+    
+    AppLogger.error('❌ All retry attempts failed for safety score');
+    _safetyScoreRetryCount++;
+    return null;
+  }
+
+  /// Calculate safety score offline using intelligent algorithms
+  Future<Map<String, dynamic>?> _calculateOfflineSafetyScore() async {
+    try {
+      // Get current location
+      LocationData? currentLocation;
+      if (_currentLocationInfo != null) {
+        currentLocation = LocationData(
+          touristId: widget.tourist.id,
+          latitude: _currentLocationInfo!['lat'] ?? 0.0,
+          longitude: _currentLocationInfo!['lng'] ?? 0.0,
+          timestamp: DateTime.now(),
+        );
+      }
+
+      // Get cached risk zones and incidents
+      List<Map<String, dynamic>> riskZones = []; // TODO: Implement zone caching
+      List<Map<String, dynamic>> recentIncidents = []; // TODO: Implement incident caching
+      
+      // Get cached score for smoothing
+      int? previousScore = _safetyScore?.score;
+      
+      // Calculate using intelligent algorithm
+      return await SafetyScoreManager.calculateIntelligentSafetyScore(
+        currentLocation: currentLocation,
+        riskZones: riskZones,
+        recentIncidents: recentIncidents,
+        timeOfDay: DateTime.now().hour.toString(),
+        cachedScore: previousScore,
+      );
+    } catch (e) {
+      AppLogger.error('🚨 Offline calculation failed: $e');
+      return null;
+    }
+  }
+
+  /// Update the UI with safety score data
+  void _updateSafetyScoreUI(Map<String, dynamic> scoreData, {bool isFromCache = false, bool isOffline = false}) {
+    final score = SafetyScore(
+      touristId: widget.tourist.id,
+      score: scoreData['safety_score'] ?? 75,
+      level: scoreData['risk_level'] ?? 'medium',
+      description: _getSafetyDescription(scoreData['safety_score'] ?? 75),
+      updatedAt: DateTime.tryParse(scoreData['last_updated'] ?? '') ?? DateTime.now(),
+    );
+    
+    setState(() {
+      _safetyScore = score;
+      _safetyScoreOfflineMode = isOffline;
+    });
+    
+    // Log the update with appropriate emoji
+    String source = isFromCache ? '💾 cache' : isOffline ? '🔋 offline' : '🌐 API';
+    AppLogger.api('🎉 Safety score updated from $source: ${score.score}% (${score.level})');
+    
+    // Show user-friendly notification for offline mode
+    if (isOffline && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              Icon(Icons.wifi_off, color: Colors.white),
+              SizedBox(width: 8),
+              Text('Using offline safety calculation'),
+            ],
+          ),
+          backgroundColor: Colors.orange,
+          duration: Duration(seconds: 3),
+        ),
+      );
+    }
+  }
+
+  /// Handle safety score loading errors gracefully
+  void _handleSafetyScoreError(dynamic error) {
+    AppLogger.error('📍 Error details: ${error.runtimeType} - ${error.toString()}');
+    
+    String userMessage = 'Unable to load safety score';
+    Color backgroundColor = Colors.red;
+    
+    // Provide specific user-friendly messages based on error type
+    if (error.toString().contains('TimeoutException')) {
+      userMessage = 'Connection timeout - using cached data';
+      backgroundColor = Colors.orange;
+    } else if (error.toString().contains('SocketException')) {
+      userMessage = 'No internet connection - using offline mode';
+      backgroundColor = Colors.blue;
+    } else if (_safetyScoreRetryCount > 5) {
+      userMessage = 'Service temporarily unavailable';
+    }
+    
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              Icon(Icons.warning, color: Colors.white),
+              SizedBox(width: 8),
+              Expanded(child: Text(userMessage)),
+            ],
+          ),
+          backgroundColor: backgroundColor,
+          duration: Duration(seconds: 4),
+          action: SnackBarAction(
+            label: 'Retry',
+            textColor: Colors.white,
+            onPressed: () => _loadSafetyScore(),
+          ),
+        ),
+      );
+    }
+  }
+
+  /// Show a fallback safety score when all else fails
+  void _showFallbackSafetyScore() {
+    final fallbackScore = SafetyScore(
+      touristId: widget.tourist.id,
+      score: 75, // Default to medium-safe
+      level: 'medium',
+      description: _getSafetyDescription(75),
+      updatedAt: DateTime.now(),
+    );
+    
+    setState(() {
+      _safetyScore = fallbackScore;
+      _safetyScoreOfflineMode = true;
+    });
+    
+    AppLogger.warning('🔒 Using fallback safety score: 75% (medium)');
+  }
+
+  /// Schedule periodic refresh of safety score
+  void _schedulePeriodicRefresh() {
+    _safetyScoreRefreshTimer?.cancel();
+    _safetyScoreRefreshTimer = Timer.periodic(Duration(minutes: 5), (timer) {
+      if (!_isLoadingSafetyScore) {
+        AppLogger.api('🔄 Periodic safety score refresh');
+        _loadSafetyScore();
+      }
+    });
   }
 
   Future<void> _loadAlerts() async {
@@ -385,6 +609,8 @@ class _HomeScreenState extends State<HomeScreen> {
               SafetyScoreWidget(
                 safetyScore: _safetyScore!,
                 onRefresh: _loadSafetyScore,
+                isOfflineMode: _safetyScoreOfflineMode,
+                isFromCache: false, // TODO: Track if score is from cache
               ),
 
             _buildQuickActions(),

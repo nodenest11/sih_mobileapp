@@ -4,11 +4,15 @@ import '../models/location.dart';
 class SafetyScoreWidget extends StatelessWidget {
   final SafetyScore safetyScore;
   final VoidCallback? onRefresh;
+  final bool isOfflineMode;
+  final bool isFromCache;
 
   const SafetyScoreWidget({
     super.key,
     required this.safetyScore,
     this.onRefresh,
+    this.isOfflineMode = false,
+    this.isFromCache = false,
   });
 
   // Cache color calculations for better performance
@@ -60,21 +64,79 @@ class SafetyScoreWidget extends StatelessWidget {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        const Text(
-          'Safety Score',
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
-            color: Color(0xFF333333),
-          ),
+        Row(
+          children: [
+            const Text(
+              'Safety Score',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF333333),
+              ),
+            ),
+            const SizedBox(width: 8),
+            if (isOfflineMode)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.orange.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.wifi_off, size: 12, color: Colors.orange.shade700),
+                    const SizedBox(width: 2),
+                    Text(
+                      'Offline',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w500,
+                        color: Colors.orange.shade700,
+                      ),
+                    ),
+                  ],
+                ),
+              )
+            else if (isFromCache)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.blue.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.cached, size: 12, color: Colors.blue.shade700),
+                    const SizedBox(width: 2),
+                    Text(
+                      'Cached',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w500,
+                        color: Colors.blue.shade700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+          ],
         ),
         if (onRefresh != null)
           GestureDetector(
             onTap: onRefresh,
-            child: Icon(
-              Icons.refresh_outlined,
-              size: 20,
-              color: Colors.grey.shade600,
+            child: Container(
+              padding: const EdgeInsets.all(4),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(4),
+                color: Colors.grey.withValues(alpha: 0.1),
+              ),
+              child: Icon(
+                Icons.refresh_outlined,
+                size: 18,
+                color: Colors.grey.shade600,
+              ),
             ),
           ),
       ],

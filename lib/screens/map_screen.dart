@@ -6,6 +6,7 @@ import '../models/alert.dart';
 import '../models/geospatial_heat.dart';
 import '../services/api_service.dart';
 import '../services/location_service.dart';
+import '../utils/logger.dart';
 import '../widgets/search_bar.dart' as custom_search;
 import '../widgets/geospatial_heatmap.dart';
 import '../widgets/heatmap_legend.dart';
@@ -125,10 +126,16 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
         _isLoadingZones = false;
       });
       _updatePolygons();
+      
+      // Reload heatmap data with new zones
+      await _loadHeatmapData();
+      
+      AppLogger.info('Loaded ${zones.length} restricted zones');
     } catch (e) {
       setState(() {
         _isLoadingZones = false;
       });
+      AppLogger.error('Failed to load restricted zones: $e');
     }
   }
 
@@ -143,41 +150,77 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       // Get panic alerts for heatmap
       final panicHeatData = await _apiService.getPanicAlertHeatData(daysPast: 30);
       
-      // Add restricted zones as heat points (lower intensity)
-      final restrictedZoneHeatData = _restrictedZones.map((zone) {
-        // Calculate zone centroid
-        final avgLat = zone.polygonCoordinates.map((p) => p.latitude).reduce((a, b) => a + b) / zone.polygonCoordinates.length;
-        final avgLng = zone.polygonCoordinates.map((p) => p.longitude).reduce((a, b) => a + b) / zone.polygonCoordinates.length;
-        
-        return GeospatialHeatPoint.fromRestrictedZone(
-          latitude: avgLat,
-          longitude: avgLng,
-          intensity: _getZoneIntensity(zone.type),
-          description: zone.name,
-        );
-      }).toList();
+      // Add restricted zones as heat points with multiple points per zone for better visualization
+      final restrictedZoneHeatData = <GeospatialHeatPoint>[];
+      
+      for (final zone in _restrictedZones) {
+        if (zone.polygonCoordinates.isNotEmpty) {
+          // Calculate zone centroid
+          final avgLat = zone.polygonCoordinates.map((p) => p.latitude).reduce((a, b) => a + b) / zone.polygonCoordinates.length;
+          final avgLng = zone.polygonCoordinates.map((p) => p.longitude).reduce((a, b) => a + b) / zone.polygonCoordinates.length;
+          
+          // Add center point with high intensity
+          restrictedZoneHeatData.add(GeospatialHeatPoint.fromRestrictedZone(
+            latitude: avgLat,
+            longitude: avgLng,
+            intensity: _getZoneIntensity(zone.type),
+            description: '${zone.name} (Center)',
+          ));
+          
+          // Add additional points around the zone perimeter for better coverage
+          for (int i = 0; i < zone.polygonCoordinates.length; i += 2) {
+            final point = zone.polygonCoordinates[i];
+            restrictedZoneHeatData.add(GeospatialHeatPoint.fromRestrictedZone(
+              latitude: point.latitude,
+              longitude: point.longitude,
+              intensity: _getZoneIntensity(zone.type) * 0.7, // Slightly lower intensity for perimeter
+              description: '${zone.name} (Perimeter)',
+            ));
+          }
+        }
+      }
 
       setState(() {
         _heatmapData = [...panicHeatData, ...restrictedZoneHeatData];
         _isLoadingHeatmap = false;
       });
+      
+      AppLogger.info('Heatmap data loaded: ${panicHeatData.length} panic alerts, ${restrictedZoneHeatData.length} zone points');
     } catch (e) {
       setState(() {
         _isLoadingHeatmap = false;
       });
+      AppLogger.error('Failed to load heatmap data: $e');
     }
   }
 
   double _getZoneIntensity(ZoneType type) {
     switch (type) {
       case ZoneType.highRisk:
-        return 0.9;
+        return 0.95; // Very high intensity for high-risk zones
       case ZoneType.dangerous:
-        return 0.8;
+        return 0.85; // High intensity for dangerous zones
       case ZoneType.restricted:
-        return 0.6;
+        return 0.7; // Moderate-high intensity for restricted zones
       case ZoneType.caution:
-        return 0.4;
+        return 0.5; // Moderate intensity for caution zones
+      case ZoneType.safe:
+        return 0.2; // Low intensity for safe zones
+    }
+  }
+
+  /// Refresh heatmap data
+  Future<void> _refreshHeatmap() async {
+    await _loadHeatmapData();
+  }
+
+  /// Toggle heatmap visibility and refresh if needed
+  void _toggleHeatmap() {
+    setState(() {
+      _showHeatmap = !_showHeatmap;
+    });
+    if (_showHeatmap && _heatmapData.isEmpty) {
+      _refreshHeatmap();
     }
   }
 
@@ -204,6 +247,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
         return Colors.orange;
       case ZoneType.caution:
         return Colors.yellow;
+      case ZoneType.safe:
+        return Colors.green; // Green color for safe zones
     }
   }
 
@@ -367,8 +412,10 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                   heatPoints: _heatmapData,
                   config: HeatmapConfig(
                     visibleTypes: _visibleHeatTypes.toList(),
-                    baseRadius: 50.0,
-                    maxPoints: 1000,
+                    baseRadius: 60.0, // Increased radius for better visibility
+                    maxPoints: 2000, // Allow more points for better coverage
+                    minOpacity: 0.2, // Higher minimum opacity for restricted zones
+                    maxOpacity: 0.9, // Higher maximum opacity for visibility
                   ),
                   visible: _showHeatmap,
                 ),
@@ -495,14 +542,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
             right: 16,
             child: HeatmapControls(
               heatmapVisible: _showHeatmap,
-              onToggleHeatmap: () {
-                setState(() {
-                  _showHeatmap = !_showHeatmap;
-                });
-                if (_showHeatmap && _heatmapData.isEmpty) {
-                  _loadHeatmapData();
-                }
-              },
+              onToggleHeatmap: _toggleHeatmap,
               onShowLegend: () {
                 setState(() {
                   _showHeatmapLegend = !_showHeatmapLegend;

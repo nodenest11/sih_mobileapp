@@ -129,7 +129,7 @@ class _SafetyDashboardScreenState extends State<SafetyDashboardScreen> {
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(8),
           gradient: LinearGradient(
-            colors: [color.withOpacity(0.1), Colors.white],
+            colors: [color.withValues(alpha: 0.1), Colors.white],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
@@ -182,7 +182,7 @@ class _SafetyDashboardScreenState extends State<SafetyDashboardScreen> {
                     child: CircularProgressIndicator(
                       value: _safetyScore / 100,
                       strokeWidth: 8,
-                      backgroundColor: color.withOpacity(0.2),
+                      backgroundColor: color.withValues(alpha: 0.2),
                       valueColor: AlwaysStoppedAnimation<Color>(color),
                     ),
                   ),
@@ -392,10 +392,10 @@ class _SafetyDashboardScreenState extends State<SafetyDashboardScreen> {
               margin: const EdgeInsets.only(bottom: 8),
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: _getZoneColor(zone.type).withOpacity(0.1),
+                color: _getZoneColor(zone.type).withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(8),
                 border: Border.all(
-                  color: _getZoneColor(zone.type).withOpacity(0.3),
+                  color: _getZoneColor(zone.type).withValues(alpha: 0.3),
                 ),
               ),
               child: Row(
@@ -460,6 +460,8 @@ class _SafetyDashboardScreenState extends State<SafetyDashboardScreen> {
         return Colors.orange;
       case ZoneType.caution:
         return Colors.yellow;
+      case ZoneType.safe:
+        return Colors.green;
     }
   }
 
@@ -472,6 +474,8 @@ class _SafetyDashboardScreenState extends State<SafetyDashboardScreen> {
         return Icons.warning;
       case ZoneType.caution:
         return Icons.info;
+      case ZoneType.safe:
+        return Icons.check_circle;
     }
   }
 

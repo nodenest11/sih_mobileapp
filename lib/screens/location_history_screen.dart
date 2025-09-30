@@ -136,7 +136,7 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen>
       Polyline(
         points: points,
         strokeWidth: 3.0,
-        color: AppColors.redPrimary.withOpacity(0.7),
+        color: AppColors.redPrimary.withValues(alpha: 0.7),
       ),
     ];
   }
