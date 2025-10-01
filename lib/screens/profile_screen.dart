@@ -341,7 +341,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ),
                 ),
               ),
-              const SizedBox(width: 8),
+            ],
+          ),
+          
+          const SizedBox(height: 8),
+          
+          Row(
+            children: [
               Expanded(
                 child: ElevatedButton.icon(
                   onPressed: () {

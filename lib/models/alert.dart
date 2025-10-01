@@ -2,28 +2,38 @@ import 'dart:math' as math;
 import 'package:latlong2/latlong.dart';
 
 class Alert {
-  final String id;
+  final int id;
   final String touristId;
+  final String touristName;
   final AlertType type;
+  final AlertSeverity severity;
   final String title;
-  final String message;
+  final String description;
   final double? latitude;
   final double? longitude;
-  final DateTime timestamp;
-  final bool isRead;
-  final AlertSeverity severity;
+  final DateTime createdAt;
+  final bool isAcknowledged;
+  final String? acknowledgedBy;
+  final DateTime? acknowledgedAt;
+  final bool isResolved;
+  final DateTime? resolvedAt;
 
   Alert({
     required this.id,
     required this.touristId,
+    required this.touristName,
     required this.type,
+    required this.severity,
     required this.title,
-    required this.message,
+    required this.description,
     this.latitude,
     this.longitude,
-    required this.timestamp,
-    this.isRead = false,
-    this.severity = AlertSeverity.medium,
+    required this.createdAt,
+    this.isAcknowledged = false,
+    this.acknowledgedBy,
+    this.acknowledgedAt,
+    this.isResolved = false,
+    this.resolvedAt,
   });
 
   LatLng? get location {
@@ -35,22 +45,31 @@ class Alert {
 
   factory Alert.fromJson(Map<String, dynamic> json) {
     return Alert(
-      id: json['id'],
-      touristId: json['tourist_id'],
+      id: json['id'] ?? 0,
+      touristId: json['tourist_id'] ?? '',
+      touristName: json['tourist_name'] ?? '',
       type: AlertType.values.firstWhere(
         (e) => e.name == json['type'],
         orElse: () => AlertType.general,
       ),
-      title: json['title'],
-      message: json['message'],
-      latitude: json['lat']?.toDouble(),
-      longitude: json['lon']?.toDouble(),
-      timestamp: DateTime.parse(json['timestamp']),
-      isRead: json['is_read'] ?? false,
       severity: AlertSeverity.values.firstWhere(
         (e) => e.name == json['severity'],
         orElse: () => AlertSeverity.medium,
       ),
+      title: json['title'] ?? '',
+      description: json['description'] ?? json['message'] ?? '',
+      latitude: json['latitude']?.toDouble() ?? json['lat']?.toDouble(),
+      longitude: json['longitude']?.toDouble() ?? json['lon']?.toDouble(),
+      createdAt: DateTime.parse(json['created_at'] ?? json['timestamp']),
+      isAcknowledged: json['is_acknowledged'] ?? false,
+      acknowledgedBy: json['acknowledged_by'],
+      acknowledgedAt: json['acknowledged_at'] != null
+          ? DateTime.parse(json['acknowledged_at'])
+          : null,
+      isResolved: json['is_resolved'] ?? false,
+      resolvedAt: json['resolved_at'] != null
+          ? DateTime.parse(json['resolved_at'])
+          : null,
     );
   }
 
@@ -58,47 +77,64 @@ class Alert {
     return {
       'id': id,
       'tourist_id': touristId,
+      'tourist_name': touristName,
       'type': type.name,
-      'title': title,
-      'message': message,
-      'lat': latitude,
-      'lon': longitude,
-      'timestamp': timestamp.toIso8601String(),
-      'is_read': isRead,
       'severity': severity.name,
+      'title': title,
+      'description': description,
+      'latitude': latitude,
+      'longitude': longitude,
+      'created_at': createdAt.toIso8601String(),
+      'is_acknowledged': isAcknowledged,
+      'acknowledged_by': acknowledgedBy,
+      'acknowledged_at': acknowledgedAt?.toIso8601String(),
+      'is_resolved': isResolved,
+      'resolved_at': resolvedAt?.toIso8601String(),
     };
   }
 
   Alert copyWith({
-    String? id,
+    int? id,
     String? touristId,
+    String? touristName,
     AlertType? type,
+    AlertSeverity? severity,
     String? title,
-    String? message,
+    String? description,
     double? latitude,
     double? longitude,
-    DateTime? timestamp,
-    bool? isRead,
-    AlertSeverity? severity,
+    DateTime? createdAt,
+    bool? isAcknowledged,
+    String? acknowledgedBy,
+    DateTime? acknowledgedAt,
+    bool? isResolved,
+    DateTime? resolvedAt,
   }) {
     return Alert(
       id: id ?? this.id,
       touristId: touristId ?? this.touristId,
+      touristName: touristName ?? this.touristName,
       type: type ?? this.type,
+      severity: severity ?? this.severity,
       title: title ?? this.title,
-      message: message ?? this.message,
+      description: description ?? this.description,
       latitude: latitude ?? this.latitude,
       longitude: longitude ?? this.longitude,
-      timestamp: timestamp ?? this.timestamp,
-      isRead: isRead ?? this.isRead,
-      severity: severity ?? this.severity,
+      createdAt: createdAt ?? this.createdAt,
+      isAcknowledged: isAcknowledged ?? this.isAcknowledged,
+      acknowledgedBy: acknowledgedBy ?? this.acknowledgedBy,
+      acknowledgedAt: acknowledgedAt ?? this.acknowledgedAt,
+      isResolved: isResolved ?? this.isResolved,
+      resolvedAt: resolvedAt ?? this.resolvedAt,
     );
   }
 }
 
 enum AlertType {
-  panic,
-  geoFence,
+  sos,
+  geofence,
+  anomaly,
+  sequence,
   safety,
   general,
   emergency,

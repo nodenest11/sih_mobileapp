@@ -289,7 +289,7 @@ class _SafetyDashboardScreenState extends State<SafetyDashboardScreen> {
                   ),
                   children: [
                     TileLayer(
-                      urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                      urlTemplate: ApiService.osmTileUrl,
                       userAgentPackageName: 'com.safehorizon.tourist',
                     ),
                     // Add zone markers

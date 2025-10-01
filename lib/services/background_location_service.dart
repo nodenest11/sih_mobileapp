@@ -156,8 +156,12 @@ class BackgroundLocationService {
       final touristIdInt = int.tryParse(touristId);
       if (touristIdInt == null) return;
 
+      // Get API base URL from shared preferences (set during app initialization)
+      final prefs = await SharedPreferences.getInstance();
+      final apiBaseUrl = prefs.getString('api_base_url')!;
+
       await http.post(
-        Uri.parse('http://159.89.166.91:8000/location/update'),
+        Uri.parse('$apiBaseUrl/location/update'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           'tourist_id': touristIdInt,

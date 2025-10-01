@@ -24,6 +24,7 @@ import 'location_history_screen.dart';
 import 'settings_screen.dart';
 import 'safety_dashboard_screen.dart';
 import 'emergency_contacts_screen.dart';
+import 'efir_form_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   final Tourist tourist;
@@ -322,9 +323,15 @@ class _HomeScreenState extends State<HomeScreen> {
     final score = SafetyScore(
       touristId: widget.tourist.id,
       score: scoreData['safety_score'] ?? 75,
-      level: scoreData['risk_level'] ?? 'medium',
-      description: _getSafetyDescription(scoreData['safety_score'] ?? 75),
-      updatedAt: DateTime.tryParse(scoreData['last_updated'] ?? '') ?? DateTime.now(),
+      riskLevel: scoreData['risk_level'] ?? 'medium',
+      scoreBreakdown: Map<String, double>.from(
+        scoreData['score_breakdown']?.map((k, v) => MapEntry(k, v.toDouble())) ?? {}
+      ),
+      componentWeights: Map<String, double>.from(
+        scoreData['component_weights']?.map((k, v) => MapEntry(k, v.toDouble())) ?? {}
+      ),
+      recommendations: List<String>.from(scoreData['recommendations'] ?? []),
+      lastUpdated: DateTime.tryParse(scoreData['last_updated'] ?? '') ?? DateTime.now(),
     );
     
     setState(() {
@@ -399,9 +406,11 @@ class _HomeScreenState extends State<HomeScreen> {
     final fallbackScore = SafetyScore(
       touristId: widget.tourist.id,
       score: 75, // Default to medium-safe
-      level: 'medium',
-      description: _getSafetyDescription(75),
-      updatedAt: DateTime.now(),
+      riskLevel: 'medium',
+      scoreBreakdown: {},
+      componentWeights: {},
+      recommendations: ['Please check your connection for updated safety information.'],
+      lastUpdated: DateTime.now(),
     );
     
     setState(() {
@@ -424,8 +433,8 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _loadAlerts() async {
-    // Alerts are not available for tourist users in the current API
-    // Only police/authority users can view alerts
+    // Individual alerts are handled through push notifications
+    // Alert history can be accessed through dedicated screens
     setState(() {
       _isLoadingAlerts = false;
       _alerts = [];
@@ -555,7 +564,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 icon: const Icon(Icons.notifications_outlined),
                 tooltip: 'Notifications',
               ),
-              if (_alerts.where((alert) => !alert.isRead).isNotEmpty)
+              if (_alerts.where((alert) => !alert.isAcknowledged).isNotEmpty)
                 Positioned(
                   right: 8,
                   top: 8,
@@ -570,7 +579,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       minHeight: 16,
                     ),
                     child: Text(
-                      '${_alerts.where((alert) => !alert.isRead).length}',
+                      '${_alerts.where((alert) => !alert.isAcknowledged).length}',
                       style: const TextStyle(
                         color: Colors.white,
                         fontSize: 10,
@@ -595,6 +604,10 @@ class _HomeScreenState extends State<HomeScreen> {
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
           children: [
             _buildLocationCard(),
+            const SizedBox(height: 18),
+
+            // E-FIR Feature Card
+            _buildEFIRFeatureCard(),
             const SizedBox(height: 18),
 
             // Safety Score Widget
@@ -782,6 +795,18 @@ class _HomeScreenState extends State<HomeScreen> {
                 MaterialPageRoute(builder: (context) => const SettingsScreen()),
               );
             }),
+          ],
+        ),
+        const SizedBox(height: 8),
+        // Third row of actions
+        Row(
+          children: [
+            _quickActionPill(Icons.description, 'File E-FIR', () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => EFIRFormScreen(tourist: widget.tourist)),
+              );
+            }),
             _quickActionPill(Icons.refresh_outlined, 'Refresh', () async {
               await Future.wait([
                 _loadSafetyScore(),
@@ -867,19 +892,19 @@ class _HomeScreenState extends State<HomeScreen> {
                         alert.title,
                         style: TextStyle(
                           fontSize: 13,
-                          fontWeight: alert.isRead ? FontWeight.w500 : FontWeight.w700,
+                          fontWeight: alert.isAcknowledged ? FontWeight.w500 : FontWeight.w700,
                         ),
                       ),
                     ),
                     Text(
-                      _formatTime(alert.timestamp),
+                      _formatTime(alert.createdAt),
                       style: const TextStyle(fontSize: 11, color: Colors.grey),
                     ),
                   ],
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  alert.message,
+                  alert.description,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(fontSize: 12, color: Colors.black87, height: 1.3),
@@ -903,16 +928,16 @@ class _HomeScreenState extends State<HomeScreen> {
       title: Text(
         alert.title,
         style: TextStyle(
-          fontWeight: alert.isRead ? FontWeight.normal : FontWeight.bold,
+          fontWeight: alert.isAcknowledged ? FontWeight.normal : FontWeight.bold,
         ),
       ),
       subtitle: Text(
-        alert.message,
+        alert.description,
         maxLines: 2,
         overflow: TextOverflow.ellipsis,
       ),
       trailing: Text(
-        _formatTime(alert.timestamp),
+        _formatTime(alert.createdAt),
         style: const TextStyle(fontSize: 12, color: Colors.grey),
       ),
       onTap: () {
@@ -924,15 +949,19 @@ class _HomeScreenState extends State<HomeScreen> {
 
   IconData _getAlertIcon(AlertType type) {
     switch (type) {
-      case AlertType.panic:
+      case AlertType.sos:
         return Icons.emergency;
-      case AlertType.geoFence:
+      case AlertType.geofence:
         return Icons.location_on;
       case AlertType.safety:
         return Icons.security;
       case AlertType.emergency:
         return Icons.warning;
-      default:
+      case AlertType.anomaly:
+        return Icons.warning_amber;
+      case AlertType.sequence:
+        return Icons.timeline;
+      case AlertType.general:
         return Icons.info;
     }
   }
@@ -980,7 +1009,7 @@ class _HomeScreenState extends State<HomeScreen> {
               Text(alert.title),
             ],
           ),
-          content: Text(alert.message),
+          content: Text(alert.description),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(),
@@ -1036,6 +1065,88 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Widget _buildEFIRFeatureCard() {
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [Colors.red.shade700, Colors.red.shade900],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.red.shade700.withOpacity(0.3),
+            blurRadius: 15,
+            offset: const Offset(0, 5),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => EFIRFormScreen(tourist: widget.tourist),
+              ),
+            );
+          },
+          borderRadius: BorderRadius.circular(20),
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: const Icon(
+                    Icons.description,
+                    size: 36,
+                    color: Colors.white,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'File E-FIR Report',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Report incidents securely on blockchain',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Colors.white.withOpacity(0.9),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const Icon(
+                  Icons.arrow_forward_ios,
+                  color: Colors.white,
+                  size: 20,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildSosSection() {
     final disabled = _panicCooldownActive;
     final remainingText = _panicRemaining.inMinutes > 0
@@ -1052,11 +1163,5 @@ class _HomeScreenState extends State<HomeScreen> {
         subtitle: disabled ? 'Next in $remainingText' : 'Tap – 10s cancel window',
       ),
     );
-  }
-
-  String _getSafetyDescription(int score) {
-    if (score >= 80) return "You are in a safe area";
-    if (score >= 60) return "Moderate safety level";
-    return "High risk area - be cautious";
   }
 }

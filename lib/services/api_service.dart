@@ -20,6 +20,10 @@ class ApiService {
   static Duration get timeout => Duration(seconds: int.parse(dotenv.env['REQUEST_TIMEOUT_SECONDS']!));
   static bool get debugMode => dotenv.env['DEBUG_MODE']?.toLowerCase() == 'true';
   
+  // External service URLs
+  static String get nominatimSearchUrl => dotenv.env['NOMINATIM_SEARCH_URL']!;
+  static String get osmTileUrl => dotenv.env['OPENSTREETMAP_TILE_URL']!;
+  
   final http.Client client = http.Client();
   String? _authToken;
   bool _isInitialized = false;
@@ -56,7 +60,7 @@ class ApiService {
   }
 
   // Enhanced request logging with masked token
-  void _logRequest(String method, String endpoint, {Map<String, String>? headers}) {
+  void _logRequest(String method, String endpoint, {Map<String, String>? headers, bool requiresAuth = true}) {
     AppLogger.apiRequest(method, endpoint);
     if (headers != null && headers.containsKey('Authorization')) {
       final authHeader = headers['Authorization']!;
@@ -64,8 +68,12 @@ class ApiService {
         final token = authHeader.substring(7);
         AppLogger.auth('Request with token: ${_maskToken(token)}');
       }
-    } else {
+    } else if (requiresAuth) {
+      // Only log as error if auth is required for this endpoint
       AppLogger.auth('Request without authorization token', isError: true);
+    } else {
+      // For public endpoints like register/login
+      AppLogger.auth('Public endpoint - no auth required');
     }
   }
 
@@ -223,7 +231,7 @@ class ApiService {
       AppLogger.auth('Register attempt: $email | password: ${_maskPassword(password)}');
       
       final requestHeaders = {"Content-Type": "application/json"};
-      _logRequest('POST', '/auth/register', headers: requestHeaders);
+      _logRequest('POST', '/auth/register', headers: requestHeaders, requiresAuth: false);
       
       final response = await client.post(
         Uri.parse("$baseUrl$apiPrefix/auth/register"),
@@ -253,7 +261,7 @@ class ApiService {
       final errorData = jsonDecode(response.body);
       throw HttpException("Registration failed: ${errorData['detail'] ?? errorData['message'] ?? 'Unknown error'}");
     } catch (e) {
-      AppLogger.auth('User registration failed', isError: true);
+      AppLogger.auth('User registration failed: $e', isError: true);
       return {
         "success": false,
         "message": e is HttpException ? e.message : "Registration failed. Please check your connection.",
@@ -270,7 +278,7 @@ class ApiService {
       AppLogger.auth('Login attempt: $email | password: ${_maskPassword(password)}');
       
       final requestHeaders = {"Content-Type": "application/json"};
-      _logRequest('POST', '/auth/login', headers: requestHeaders);
+      _logRequest('POST', '/auth/login', headers: requestHeaders, requiresAuth: false);
       
       final response = await client.post(
         Uri.parse("$baseUrl$apiPrefix/auth/login"),
@@ -409,24 +417,62 @@ class ApiService {
     }
   }
 
-  Future<Map<String, dynamic>> getLocationHistory({int limit = 100}) async {
+  Future<Map<String, dynamic>> getLocationHistory({
+    int limit = 100,
+    int? hoursBack,
+    int? tripId,
+  }) async {
+    await _ensureInitialized();
+    
     try {
-      final response = await client.get(
-        Uri.parse("$baseUrl$apiPrefix/location/history?limit=$limit"),
-        headers: headers,
-      ).timeout(timeout);
+      // Build query parameters
+      final queryParams = <String, String>{
+        'limit': limit.toString(),
+      };
+      if (hoursBack != null) queryParams['hours_back'] = hoursBack.toString();
+      if (tripId != null) queryParams['trip_id'] = tripId.toString();
+      
+      final uri = Uri.parse("$baseUrl$apiPrefix/location/history")
+          .replace(queryParameters: queryParams);
+      
+      final requestHeaders = await safeHeaders;
+      final response = await client.get(uri, headers: requestHeaders).timeout(timeout);
 
       if (response.statusCode == 200) {
-        final List<dynamic> data = jsonDecode(response.body);
+        final data = jsonDecode(response.body);
+        if (data is List) {
+          // Handle legacy response format (list of locations)
+          return {
+            "success": true,
+            "locations": data,
+            "total": data.length,
+          };
+        } else {
+          // Handle new response format (object with locations array)
+          return {
+            "success": true,
+            "locations": data["locations"] ?? [],
+            "total": data["total"] ?? 0,
+            "hours_back": data["hours_back"] ?? hoursBack,
+          };
+        }
+      } else if (response.statusCode == 401 || response.statusCode == 403) {
+        await handleAuthError(response.statusCode, '/location/history');
         return {
-          "success": true,
-          "locations": data,
+          "success": false,
+          "message": response.statusCode == 401 
+            ? "Authentication required. Please login again."
+            : "Access denied. Invalid token or permissions.",
+          "auth_error": true,
         };
       }
 
       throw HttpException("Failed to load location history: ${response.statusCode}");
     } catch (e) {
       AppLogger.location('Failed to load location history', isError: true);
+      if (e is HttpException && (e.message.contains('Authentication required') || e.message.contains('Access denied'))) {
+        rethrow;
+      }
       return {
         "success": false,
         "message": "Failed to load location history.",
@@ -439,18 +485,26 @@ class ApiService {
     required String destination,
     String? itinerary,
   }) async {
+    await _ensureInitialized();
+    
     try {
+      final requestHeaders = await safeHeaders;
+      _logRequest('POST', '/trip/start', headers: requestHeaders);
+      
       final response = await client.post(
         Uri.parse("$baseUrl$apiPrefix/trip/start"),
-        headers: headers,
+        headers: requestHeaders,
         body: jsonEncode({
           "destination": destination,
           if (itinerary != null) "itinerary": itinerary,
         }),
       ).timeout(timeout);
 
+      _logResponse('/trip/start', response.statusCode, body: response.body);
+
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
+        AppLogger.info('Trip started successfully: ${data["trip_id"]}');
         return {
           "success": true,
           "trip_id": data["trip_id"],
@@ -458,11 +512,19 @@ class ApiService {
           "status": data["status"],
           "start_date": data["start_date"],
         };
+      } else if (response.statusCode == 401 || response.statusCode == 403) {
+        await handleAuthError(response.statusCode, '/trip/start');
+        throw HttpException(response.statusCode == 401 
+          ? "Authentication required. Please login again."
+          : "Access denied. Invalid token or permissions.");
       }
 
       throw HttpException("Failed to start trip: ${response.statusCode}");
     } catch (e) {
-      AppLogger.service('Trip start failed', isError: true);
+      AppLogger.service('Trip start failed: $e', isError: true);
+      if (e is HttpException && (e.message.contains('Authentication required') || e.message.contains('Access denied'))) {
+        rethrow;
+      }
       return {
         "success": false,
         "message": "Failed to start trip.",
@@ -471,25 +533,41 @@ class ApiService {
   }
 
   Future<Map<String, dynamic>> endTrip() async {
+    await _ensureInitialized();
+    
     try {
+      final requestHeaders = await safeHeaders;
+      _logRequest('POST', '/trip/end', headers: requestHeaders);
+      
       final response = await client.post(
         Uri.parse("$baseUrl$apiPrefix/trip/end"),
-        headers: headers,
+        headers: requestHeaders,
       ).timeout(timeout);
+
+      _logResponse('/trip/end', response.statusCode, body: response.body);
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
+        AppLogger.info('Trip ended successfully: ${data["trip_id"]}');
         return {
           "success": true,
           "trip_id": data["trip_id"],
           "status": data["status"],
           "end_date": data["end_date"],
         };
+      } else if (response.statusCode == 401 || response.statusCode == 403) {
+        await handleAuthError(response.statusCode, '/trip/end');
+        throw HttpException(response.statusCode == 401 
+          ? "Authentication required. Please login again."
+          : "Access denied. Invalid token or permissions.");
       }
 
       throw HttpException("Failed to end trip: ${response.statusCode}");
     } catch (e) {
-      AppLogger.service('Trip end failed', isError: true);
+      AppLogger.service('Trip end failed: $e', isError: true);
+      if (e is HttpException && (e.message.contains('Authentication required') || e.message.contains('Access denied'))) {
+        rethrow;
+      }
       return {
         "success": false,
         "message": "Failed to end trip.",
@@ -498,23 +576,39 @@ class ApiService {
   }
 
   Future<Map<String, dynamic>> getTripHistory() async {
+    await _ensureInitialized();
+    
     try {
+      final requestHeaders = await safeHeaders;
+      _logRequest('GET', '/trip/history', headers: requestHeaders);
+      
       final response = await client.get(
         Uri.parse("$baseUrl$apiPrefix/trip/history"),
-        headers: headers,
+        headers: requestHeaders,
       ).timeout(timeout);
+
+      _logResponse('/trip/history', response.statusCode, body: response.body);
 
       if (response.statusCode == 200) {
         final List<dynamic> data = jsonDecode(response.body);
+        AppLogger.info('Trip history retrieved successfully (${data.length} trips)');
         return {
           "success": true,
           "trips": data,
         };
+      } else if (response.statusCode == 401 || response.statusCode == 403) {
+        await handleAuthError(response.statusCode, '/trip/history');
+        throw HttpException(response.statusCode == 401 
+          ? "Authentication required. Please login again."
+          : "Access denied. Invalid token or permissions.");
       }
 
       throw HttpException("Failed to load trip history: ${response.statusCode}");
     } catch (e) {
-      AppLogger.service('Failed to load trip history', isError: true);
+      AppLogger.service('Failed to load trip history: $e', isError: true);
+      if (e is HttpException && (e.message.contains('Authentication required') || e.message.contains('Access denied'))) {
+        rethrow;
+      }
       return {
         "success": false,
         "message": "Failed to load trip history.",
@@ -634,7 +728,7 @@ class ApiService {
       // Using Nominatim for location search as per specifications
       final encodedQuery = Uri.encodeComponent(query);
       final response = await client.get(
-        Uri.parse("https://nominatim.openstreetmap.org/search?format=json&q=$encodedQuery&limit=10"),
+        Uri.parse("$nominatimSearchUrl?format=json&q=$encodedQuery&limit=10"),
         headers: {"User-Agent": "TouristSafetyApp/1.0"},
       ).timeout(timeout);
 
@@ -663,6 +757,8 @@ class ApiService {
     
     try {
       final requestHeaders = await safeHeaders;
+      _logRequest('POST', '/ai/geofence/check', headers: requestHeaders);
+      
       final response = await client.post(
         Uri.parse("$baseUrl$apiPrefix/ai/geofence/check"),
         headers: requestHeaders,
@@ -672,14 +768,17 @@ class ApiService {
         }),
       ).timeout(timeout);
 
+      _logResponse('/ai/geofence/check', response.statusCode, body: response.body);
+
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
+        AppLogger.info('Geofence check successful: ${data["risk_level"]}');
         return {
           "success": true,
-          "status": data["status"], // "safe", "risky", "restricted"
-          "zone_name": data["zone_name"],
-          "distance_to_zone": data["distance_to_zone"],
-          "recommendations": data["recommendations"],
+          "inside_restricted": data["inside_restricted"] ?? false,
+          "risk_level": data["risk_level"] ?? "safe",
+          "zones": data["zones"] ?? [],
+          "checked_at": data["checked_at"],
         };
       } else if (response.statusCode == 401 || response.statusCode == 403) {
         await handleAuthError(response.statusCode, '/ai/geofence/check');
@@ -690,16 +789,15 @@ class ApiService {
 
       throw HttpException("Failed to check geofence: ${response.statusCode}");
     } catch (e) {
-      AppLogger.location('Geofence check failed', isError: true);
+      AppLogger.location('Geofence check failed: $e', isError: true);
       if (e is HttpException && (e.message.contains('Authentication required') || e.message.contains('Access denied'))) {
         rethrow; // Let auth errors bubble up
       }
       return {
         "success": false,
-        "status": "safe",
-        "zone_name": null,
-        "distance_to_zone": 0.0,
-        "recommendations": [],
+        "inside_restricted": false,
+        "risk_level": "safe",
+        "zones": [],
       };
     }
   }
@@ -903,8 +1001,8 @@ class ApiService {
   }
 
   Future<List<Alert>> getAlerts([int? touristId]) async {
-    // This method is not available for tourists in the new API
-    // Only police/authority users can view alerts
+    // This method returns empty list for tourists as alerts are managed differently
+    // Individual alert notifications are handled through push notifications
     return [];
   }
 
@@ -927,7 +1025,578 @@ class ApiService {
     return await triggerSOS();
   }
 
+  // Zone Management Endpoints
+  /// Get all zones (accessible to all authenticated users)
+  /// Endpoint: GET /zones/list
+  Future<List<Map<String, dynamic>>> getZonesList() async {
+    await _ensureInitialized();
+    
+    try {
+      final requestHeaders = await safeHeaders;
+      _logRequest('GET', '/zones/list', headers: requestHeaders);
+      
+      final response = await client.get(
+        Uri.parse("$baseUrl$apiPrefix/zones/list"),
+        headers: requestHeaders,
+      ).timeout(timeout);
+
+      _logResponse('/zones/list', response.statusCode, body: response.body);
+
+      if (response.statusCode == 200) {
+        final List<dynamic> data = jsonDecode(response.body);
+        AppLogger.info('Zones list retrieved successfully (${data.length} zones)');
+        return data.cast<Map<String, dynamic>>();
+      } else if (response.statusCode == 401 || response.statusCode == 403) {
+        await handleAuthError(response.statusCode, '/zones/list');
+        throw HttpException(response.statusCode == 401 
+          ? "Authentication required. Please login again."
+          : "Access denied. Invalid token or permissions.");
+      }
+
+      throw HttpException("Failed to load zones list: ${response.statusCode}");
+    } catch (e) {
+      AppLogger.location('Failed to load zones list: $e', isError: true);
+      if (e is HttpException && (e.message.contains('Authentication required') || e.message.contains('Access denied'))) {
+        rethrow;
+      }
+      return [];
+    }
+  }
+
+  // Notification Endpoints
+  /// Get notification history
+  /// Endpoint: GET /notify/history
+  Future<Map<String, dynamic>> getNotificationHistory({int hours = 24}) async {
+    await _ensureInitialized();
+    
+    try {
+      final requestHeaders = await safeHeaders;
+      _logRequest('GET', '/notify/history', headers: requestHeaders);
+      
+      final response = await client.get(
+        Uri.parse("$baseUrl$apiPrefix/notify/history?hours=$hours"),
+        headers: requestHeaders,
+      ).timeout(timeout);
+
+      _logResponse('/notify/history', response.statusCode, body: response.body);
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        AppLogger.info('Notification history retrieved successfully');
+        return {
+          "success": true,
+          "notifications": data["notifications"] ?? [],
+          "period_hours": data["period_hours"] ?? hours,
+          "total": data["total"] ?? 0,
+        };
+      } else if (response.statusCode == 401 || response.statusCode == 403) {
+        await handleAuthError(response.statusCode, '/notify/history');
+        throw HttpException(response.statusCode == 401 
+          ? "Authentication required. Please login again."
+          : "Access denied. Invalid token or permissions.");
+      }
+
+      throw HttpException("Failed to load notification history: ${response.statusCode}");
+    } catch (e) {
+      AppLogger.service('Failed to load notification history: $e', isError: true);
+      if (e is HttpException && (e.message.contains('Authentication required') || e.message.contains('Access denied'))) {
+        rethrow;
+      }
+      return {
+        "success": false,
+        "notifications": [],
+        "period_hours": hours,
+        "total": 0,
+      };
+    }
+  }
+
+  /// Get notification settings for current user
+  /// Endpoint: GET /notify/settings
+  Future<Map<String, dynamic>> getNotificationSettings() async {
+    await _ensureInitialized();
+    
+    try {
+      final requestHeaders = await safeHeaders;
+      _logRequest('GET', '/notify/settings', headers: requestHeaders);
+      
+      final response = await client.get(
+        Uri.parse("$baseUrl$apiPrefix/notify/settings"),
+        headers: requestHeaders,
+      ).timeout(timeout);
+
+      _logResponse('/notify/settings', response.statusCode, body: response.body);
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        AppLogger.info('Notification settings retrieved successfully');
+        return {
+          "success": true,
+          "settings": data,
+        };
+      } else if (response.statusCode == 401 || response.statusCode == 403) {
+        await handleAuthError(response.statusCode, '/notify/settings');
+        throw HttpException(response.statusCode == 401 
+          ? "Authentication required. Please login again."
+          : "Access denied. Invalid token or permissions.");
+      }
+
+      throw HttpException("Failed to load notification settings: ${response.statusCode}");
+    } catch (e) {
+      AppLogger.service('Failed to load notification settings: $e', isError: true);
+      if (e is HttpException && (e.message.contains('Authentication required') || e.message.contains('Access denied'))) {
+        rethrow;
+      }
+      return {
+        "success": false,
+        "settings": null,
+      };
+    }
+  }
+
+  /// Update notification settings
+  /// Endpoint: PUT /notify/settings
+  Future<Map<String, dynamic>> updateNotificationSettings({
+    bool? pushEnabled,
+    bool? smsEnabled,
+    bool? emailEnabled,
+    Map<String, bool>? notificationTypes,
+  }) async {
+    await _ensureInitialized();
+    
+    try {
+      final requestHeaders = await safeHeaders;
+      _logRequest('PUT', '/notify/settings', headers: requestHeaders);
+      
+      final response = await client.put(
+        Uri.parse("$baseUrl$apiPrefix/notify/settings"),
+        headers: requestHeaders,
+        body: jsonEncode({
+          if (pushEnabled != null) "push_enabled": pushEnabled,
+          if (smsEnabled != null) "sms_enabled": smsEnabled,
+          if (emailEnabled != null) "email_enabled": emailEnabled,
+          if (notificationTypes != null) "notification_types": notificationTypes,
+        }),
+      ).timeout(timeout);
+
+      _logResponse('/notify/settings', response.statusCode, body: response.body);
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        AppLogger.info('Notification settings updated successfully');
+        return {
+          "success": true,
+          "updated_settings": data["updated_settings"],
+        };
+      } else if (response.statusCode == 401 || response.statusCode == 403) {
+        await handleAuthError(response.statusCode, '/notify/settings');
+        throw HttpException(response.statusCode == 401 
+          ? "Authentication required. Please login again."
+          : "Access denied. Invalid token or permissions.");
+      }
+
+      throw HttpException("Failed to update notification settings: ${response.statusCode}");
+    } catch (e) {
+      AppLogger.service('Failed to update notification settings: $e', isError: true);
+      if (e is HttpException && (e.message.contains('Authentication required') || e.message.contains('Access denied'))) {
+        rethrow;
+      }
+      return {
+        "success": false,
+        "message": "Failed to update notification settings.",
+      };
+    }
+  }
+
+  // ========== New Tourist API Endpoints ==========
+
+  /// Generate E-FIR for tourist-reported incident
+  /// Endpoint: POST /api/efir/generate
+  Future<Map<String, dynamic>> generateTouristEFir({
+    required String incidentDescription,
+    required String incidentType,
+    required String location,
+    required DateTime timestamp,
+    List<String>? witnesses,
+    String? additionalDetails,
+  }) async {
+    await _ensureInitialized();
+    
+    try {
+      final requestHeaders = await safeHeaders;
+      _logRequest('POST', '/efir/generate', headers: requestHeaders);
+      
+      final response = await client.post(
+        Uri.parse("$baseUrl$apiPrefix/efir/generate"),
+        headers: requestHeaders,
+        body: jsonEncode({
+          "incident_description": incidentDescription,
+          "incident_type": incidentType,
+          "location": location,
+          "timestamp": timestamp.toIso8601String(),
+          if (witnesses != null) "witnesses": witnesses,
+          if (additionalDetails != null) "additional_details": additionalDetails,
+        }),
+      ).timeout(timeout);
+
+      _logResponse('/efir/generate', response.statusCode, body: response.body);
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        AppLogger.info('Tourist E-FIR generated successfully: ${data["fir_number"]}');
+        return {
+          "success": true,
+          "fir_number": data["fir_number"],
+          "blockchain_tx_id": data["blockchain_tx_id"],
+          "timestamp": data["timestamp"],
+          "verification_url": data["verification_url"],
+          "status": data["status"],
+          "reference_number": data["reference_number"],
+          "message": data["message"],
+        };
+      } else if (response.statusCode == 401 || response.statusCode == 403) {
+        await handleAuthError(response.statusCode, '/efir/generate');
+        throw HttpException(response.statusCode == 401 
+          ? "Authentication required. Please login again."
+          : "Access denied. Invalid token or permissions.");
+      }
+
+      final errorData = jsonDecode(response.body);
+      throw HttpException("E-FIR generation failed: ${errorData['detail'] ?? 'Unknown error'}");
+    } catch (e) {
+      AppLogger.service('Tourist E-FIR generation failed: $e', isError: true);
+      if (e is HttpException && (e.message.contains('Authentication required') || e.message.contains('Access denied'))) {
+        rethrow;
+      }
+      return {
+        "success": false,
+        "message": "Failed to generate E-FIR: ${e.toString()}",
+      };
+    }
+  }
+
+  /// Debug endpoint to check user role and permissions
+  /// Endpoint: GET /api/debug/role
+  Future<Map<String, dynamic>> debugRole() async {
+    await _ensureInitialized();
+    
+    try {
+      final requestHeaders = await safeHeaders;
+      _logRequest('GET', '/debug/role', headers: requestHeaders);
+      
+      final response = await client.get(
+        Uri.parse("$baseUrl$apiPrefix/debug/role"),
+        headers: requestHeaders,
+      ).timeout(timeout);
+
+      _logResponse('/debug/role', response.statusCode, body: response.body);
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        AppLogger.info('Role debug successful: ${data["role"]}');
+        return {
+          "success": true,
+          "user_id": data["user_id"],
+          "email": data["email"],
+          "role": data["role"],
+          "is_tourist": data["is_tourist"],
+          "is_authority": data["is_authority"],
+          "is_admin": data["is_admin"],
+        };
+      } else if (response.statusCode == 401 || response.statusCode == 403) {
+        await handleAuthError(response.statusCode, '/debug/role');
+        throw HttpException(response.statusCode == 401 
+          ? "Authentication required. Please login again."
+          : "Access denied. Invalid token or permissions.");
+      }
+
+      throw HttpException("Role debug failed: ${response.statusCode}");
+    } catch (e) {
+      AppLogger.service('Role debug failed: $e', isError: true);
+      if (e is HttpException && (e.message.contains('Authentication required') || e.message.contains('Access denied'))) {
+        rethrow;
+      }
+      return {
+        "success": false,
+        "message": "Failed to debug role: ${e.toString()}",
+      };
+    }
+  }
+
+  /// Get nearby zones within specified radius
+  /// Endpoint: GET /api/zones/nearby
+  Future<Map<String, dynamic>> getNearbyZones({
+    required double lat,
+    required double lon,
+    int radius = 5000,
+  }) async {
+    await _ensureInitialized();
+    
+    try {
+      final requestHeaders = await safeHeaders;
+      final uri = Uri.parse("$baseUrl$apiPrefix/zones/nearby")
+          .replace(queryParameters: {
+            'lat': lat.toString(),
+            'lon': lon.toString(),
+            'radius': radius.toString(),
+          });
+      
+      _logRequest('GET', '/zones/nearby', headers: requestHeaders);
+      
+      final response = await client.get(uri, headers: requestHeaders).timeout(timeout);
+
+      _logResponse('/zones/nearby', response.statusCode, body: response.body);
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        AppLogger.info('Nearby zones retrieved successfully (${data["total"]} zones)');
+        return {
+          "success": true,
+          "nearby_zones": data["nearby_zones"] ?? [],
+          "center": data["center"],
+          "radius_meters": data["radius_meters"],
+          "total": data["total"],
+          "generated_at": data["generated_at"],
+        };
+      } else if (response.statusCode == 401 || response.statusCode == 403) {
+        await handleAuthError(response.statusCode, '/zones/nearby');
+        throw HttpException(response.statusCode == 401 
+          ? "Authentication required. Please login again."
+          : "Access denied. Invalid token or permissions.");
+      }
+
+      throw HttpException("Failed to get nearby zones: ${response.statusCode}");
+    } catch (e) {
+      AppLogger.location('Failed to get nearby zones: $e', isError: true);
+      if (e is HttpException && (e.message.contains('Authentication required') || e.message.contains('Access denied'))) {
+        rethrow;
+      }
+      return {
+        "success": false,
+        "nearby_zones": [],
+        "total": 0,
+      };
+    }
+  }
+
+  /// Get public zone heatmap data
+  /// Endpoint: GET /api/heatmap/zones/public
+  Future<Map<String, dynamic>> getPublicZoneHeatmap({
+    double? boundsNorth,
+    double? boundsSouth,
+    double? boundsEast,
+    double? boundsWest,
+    String? zoneType,
+  }) async {
+    await _ensureInitialized();
+    
+    try {
+      final requestHeaders = await safeHeaders;
+      final queryParams = <String, String>{};
+      if (boundsNorth != null) queryParams['bounds_north'] = boundsNorth.toString();
+      if (boundsSouth != null) queryParams['bounds_south'] = boundsSouth.toString();
+      if (boundsEast != null) queryParams['bounds_east'] = boundsEast.toString();
+      if (boundsWest != null) queryParams['bounds_west'] = boundsWest.toString();
+      if (zoneType != null) queryParams['zone_type'] = zoneType;
+      
+      final uri = Uri.parse("$baseUrl$apiPrefix/heatmap/zones/public")
+          .replace(queryParameters: queryParams.isNotEmpty ? queryParams : null);
+      
+      _logRequest('GET', '/heatmap/zones/public', headers: requestHeaders);
+      
+      final response = await client.get(uri, headers: requestHeaders).timeout(timeout);
+
+      _logResponse('/heatmap/zones/public', response.statusCode, body: response.body);
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        AppLogger.info('Public zone heatmap retrieved successfully');
+        return {
+          "success": true,
+          "zones": data["zones"] ?? [],
+        };
+      } else if (response.statusCode == 401 || response.statusCode == 403) {
+        await handleAuthError(response.statusCode, '/heatmap/zones/public');
+        throw HttpException(response.statusCode == 401 
+          ? "Authentication required. Please login again."
+          : "Access denied. Invalid token or permissions.");
+      }
+
+      throw HttpException("Failed to get public zone heatmap: ${response.statusCode}");
+    } catch (e) {
+      AppLogger.location('Failed to get public zone heatmap: $e', isError: true);
+      if (e is HttpException && (e.message.contains('Authentication required') || e.message.contains('Access denied'))) {
+        rethrow;
+      }
+      return {
+        "success": false,
+        "zones": [],
+      };
+    }
+  }
+
+  /// Generate E-FIR (Electronic First Information Report)
+  Future<Map<String, dynamic>> generateEFIR({
+    required String incidentDescription,
+    required String incidentType,
+    String? location,
+    DateTime? timestamp,
+    List<String>? witnesses,
+    String? additionalDetails,
+  }) async {
+    await _ensureInitialized();
+    
+    try {
+      final requestHeaders = await safeHeaders;
+      final requestBody = {
+        'incident_description': incidentDescription,
+        'incident_type': incidentType,
+        if (location != null) 'location': location,
+        'timestamp': (timestamp ?? DateTime.now()).toUtc().toIso8601String(),
+        'witnesses': witnesses ?? [],
+        if (additionalDetails != null) 'additional_details': additionalDetails,
+      };
+
+      _logRequest('POST', '/tourist/efir/generate', headers: requestHeaders);
+      AppLogger.emergency('📋 Generating E-FIR for incident type: $incidentType');
+
+      final response = await client.post(
+        Uri.parse("$baseUrl$apiPrefix/tourist/efir/generate"),
+        headers: requestHeaders,
+        body: jsonEncode(requestBody),
+      ).timeout(timeout);
+
+      _logResponse('/tourist/efir/generate', response.statusCode, body: response.body);
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        AppLogger.emergency('✅ E-FIR generated successfully: ${data['fir_number']}');
+        AppLogger.info('Blockchain TX ID: ${data['blockchain_tx_id']}');
+        AppLogger.info('Reference Number: ${data['reference_number']}');
+        
+        return {
+          "success": true,
+          "message": data['message'] ?? 'E-FIR generated successfully',
+          "fir_number": data['fir_number'],
+          "blockchain_tx_id": data['blockchain_tx_id'],
+          "reference_number": data['reference_number'],
+          "timestamp": data['timestamp'],
+          "verification_url": data['verification_url'],
+          "status": data['status'],
+        };
+      } else if (response.statusCode == 401 || response.statusCode == 403) {
+        await handleAuthError(response.statusCode, '/tourist/efir/generate');
+        throw HttpException(response.statusCode == 401 
+          ? "Authentication required. Please login again."
+          : "Access denied. You don't have permission to generate E-FIR.");
+      } else if (response.statusCode == 404) {
+        throw HttpException("Tourist profile not found.");
+      }
+
+      final error = jsonDecode(response.body);
+      throw HttpException(error['detail'] ?? 'Failed to generate E-FIR');
+    } catch (e) {
+      AppLogger.emergency('Failed to generate E-FIR: $e', isError: true);
+      if (e is HttpException) rethrow;
+      return {
+        "success": false,
+        "message": e.toString(),
+      };
+    }
+  }
+
+  /// Get E-FIR history for the tourist
+  Future<Map<String, dynamic>> getEFIRHistory() async {
+    await _ensureInitialized();
+    
+    try {
+      final requestHeaders = await safeHeaders;
+      
+      _logRequest('GET', '/tourist/efir/history', headers: requestHeaders);
+
+      final response = await client.get(
+        Uri.parse("$baseUrl$apiPrefix/tourist/efir/history"),
+        headers: requestHeaders,
+      ).timeout(timeout);
+
+      _logResponse('/tourist/efir/history', response.statusCode);
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        AppLogger.info('E-FIR history retrieved successfully');
+        
+        return {
+          "success": true,
+          "efirs": data['efirs'] ?? [],
+        };
+      } else if (response.statusCode == 401 || response.statusCode == 403) {
+        await handleAuthError(response.statusCode, '/tourist/efir/history');
+        throw HttpException("Authentication failed. Please login again.");
+      }
+
+      AppLogger.warning('E-FIR history endpoint returned ${response.statusCode}');
+      return {
+        "success": false,
+        "efirs": [],
+        "message": "Failed to load E-FIR history",
+      };
+    } catch (e) {
+      AppLogger.error('Failed to get E-FIR history: $e');
+      return {
+        "success": false,
+        "efirs": [],
+        "message": e.toString(),
+      };
+    }
+  }
+
+  /// Verify E-FIR on blockchain
+  Future<Map<String, dynamic>> verifyEFIRBlockchain(String blockchainTxId) async {
+    await _ensureInitialized();
+    
+    try {
+      final requestHeaders = await safeHeaders;
+      
+      _logRequest('GET', '/blockchain/verify/$blockchainTxId', headers: requestHeaders);
+
+      final response = await client.get(
+        Uri.parse("$baseUrl$apiPrefix/blockchain/verify/$blockchainTxId"),
+        headers: requestHeaders,
+      ).timeout(timeout);
+
+      _logResponse('/blockchain/verify/$blockchainTxId', response.statusCode);
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        AppLogger.info('E-FIR blockchain verification successful');
+        
+        return {
+          "success": true,
+          "valid": data['valid'] ?? false,
+          "tx_id": data['tx_id'],
+          "status": data['status'],
+          "chain_id": data['chain_id'],
+          "verified_at": data['verified_at'],
+        };
+      }
+
+      return {
+        "success": false,
+        "valid": false,
+        "message": "Failed to verify E-FIR",
+      };
+    } catch (e) {
+      AppLogger.error('Failed to verify E-FIR on blockchain: $e');
+      return {
+        "success": false,
+        "valid": false,
+        "message": e.toString(),
+      };
+    }
+  }
+
   void dispose() {
     client.close();
   }
 }
+

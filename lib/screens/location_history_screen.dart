@@ -162,7 +162,7 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen>
       ),
       children: [
         TileLayer(
-          urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+          urlTemplate: ApiService.osmTileUrl,
           userAgentPackageName: 'com.safehorizon.tourist',
         ),
         PolylineLayer(polylines: _buildMapPolylines()),

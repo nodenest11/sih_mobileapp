@@ -33,6 +33,12 @@ Future<void> _initializeApp() async {
   
   AppLogger.info('App orientation set to portrait only');
   
+  // Store API base URL in shared preferences for background service access
+  final prefs = await SharedPreferences.getInstance();
+  final apiBaseUrl = dotenv.env['API_BASE_URL']!;
+  await prefs.setString('api_base_url', apiBaseUrl);
+  AppLogger.info('API base URL stored in shared preferences: $apiBaseUrl');
+  
   // Initialize API service and find working server
   final apiService = ApiService();
   await apiService.initializeAuth();

@@ -73,18 +73,18 @@ class _NotificationScreenState extends State<NotificationScreen> {
 
   Future<void> _markAllAsRead() async {
     // Mark all unread alerts as read
-    final unreadAlerts = _alerts.where((alert) => !alert.isRead).toList();
+    final unreadAlerts = _alerts.where((alert) => !alert.isAcknowledged).toList();
     if (unreadAlerts.isNotEmpty) {
       try {
         // Update alerts as read on the server
         for (final alert in unreadAlerts) {
-          await _apiService.markAlertAsRead(alert.id);
+          await _apiService.markAlertAsRead(alert.id.toString());
         }
         
         // Update local state
         setState(() {
           _alerts = _alerts.map((alert) {
-            return alert.copyWith(isRead: true);
+            return alert.copyWith(isAcknowledged: true);
           }).toList();
         });
       } catch (e) {
@@ -98,7 +98,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
     try {
       await _apiService.deleteAlert(alertId);
       setState(() {
-        _alerts.removeWhere((alert) => alert.id == alertId);
+        _alerts.removeWhere((alert) => alert.id.toString() == alertId);
       });
       
       if (mounted) {
@@ -342,7 +342,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          alert.message,
+                          alert.description,
                           style: TextStyle(
                             fontSize: 14,
                             color: Colors.grey.shade600,
@@ -377,7 +377,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
                             ),
                             const Spacer(),
                             Text(
-                              _formatTimestamp(alert.timestamp),
+                                                                                                                _formatTimestamp(alert.createdAt),
                               style: TextStyle(
                                 fontSize: 12,
                                 color: Colors.grey.shade500,
@@ -429,7 +429,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              alert.message,
+              alert.description,
               style: const TextStyle(fontSize: 16, height: 1.4),
             ),
             const SizedBox(height: 16),
@@ -438,7 +438,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
                 const Icon(Icons.access_time, size: 16, color: Colors.grey),
                 const SizedBox(width: 8),
                 Text(
-                  DateFormat('MMM dd, yyyy at hh:mm a').format(alert.timestamp),
+                  DateFormat('MMM dd, yyyy at hh:mm a').format(alert.createdAt),
                   style: TextStyle(
                     fontSize: 14,
                     color: Colors.grey.shade600,
@@ -504,7 +504,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
           TextButton(
             onPressed: () {
               Navigator.of(context).pop();
-              _deleteAlert(alert.id);
+              _deleteAlert(alert.id.toString());
             },
             style: TextButton.styleFrom(
               foregroundColor: Colors.red,
@@ -533,9 +533,9 @@ class _NotificationScreenState extends State<NotificationScreen> {
 
   IconData _getAlertTypeIcon(AlertType type) {
     switch (type) {
-      case AlertType.panic:
+      case AlertType.sos:
         return Icons.crisis_alert;
-      case AlertType.geoFence:
+      case AlertType.geofence:
         return Icons.location_on;
       case AlertType.safety:
         return Icons.security;
@@ -543,6 +543,10 @@ class _NotificationScreenState extends State<NotificationScreen> {
         return Icons.info;
       case AlertType.emergency:
         return Icons.emergency;
+      case AlertType.anomaly:
+        return Icons.warning_amber;
+      case AlertType.sequence:
+        return Icons.timeline;
     }
   }
 
@@ -561,9 +565,9 @@ class _NotificationScreenState extends State<NotificationScreen> {
 
   Color _getTypeColor(AlertType type) {
     switch (type) {
-      case AlertType.panic:
+      case AlertType.sos:
         return Colors.red;
-      case AlertType.geoFence:
+      case AlertType.geofence:
         return Colors.orange;
       case AlertType.safety:
         return Colors.green;
@@ -571,14 +575,18 @@ class _NotificationScreenState extends State<NotificationScreen> {
         return Colors.blue;
       case AlertType.emergency:
         return Colors.red.shade800;
+      case AlertType.anomaly:
+        return Colors.yellow.shade700;
+      case AlertType.sequence:
+        return Colors.purple;
     }
   }
 
   String _getAlertTypeDisplayName(AlertType type) {
     switch (type) {
-      case AlertType.panic:
-        return 'Panic Alert';
-      case AlertType.geoFence:
+      case AlertType.sos:
+        return 'SOS Alert';
+      case AlertType.geofence:
         return 'Geofence Alert';
       case AlertType.safety:
         return 'Safety Alert';
@@ -586,6 +594,10 @@ class _NotificationScreenState extends State<NotificationScreen> {
         return 'General';
       case AlertType.emergency:
         return 'Emergency';
+      case AlertType.anomaly:
+        return 'Anomaly Alert';
+      case AlertType.sequence:
+        return 'Sequence Alert';
     }
   }
 

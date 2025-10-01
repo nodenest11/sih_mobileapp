@@ -11,6 +11,8 @@ import '../screens/emergency_contacts_screen.dart';
 import '../screens/settings_screen.dart';
 import '../screens/profile_screen.dart';
 import '../screens/login_screen.dart';
+import '../screens/efir_form_screen.dart';
+import '../screens/efir_history_screen.dart';
 import '../theme/app_theme.dart';
 
 class ModernSidebar extends StatefulWidget {
@@ -187,6 +189,8 @@ class _ModernSidebarState extends State<ModernSidebar>
     final items = [
       NavItem(Icons.home_rounded, 'Home', HomeScreen(tourist: widget.tourist)),
       NavItem(Icons.map_rounded, 'Map', MapScreen(tourist: widget.tourist)),
+      NavItem(Icons.description_rounded, 'File E-FIR', EFIRFormScreen(tourist: widget.tourist)),
+      NavItem(Icons.history_edu_rounded, 'E-FIR History', EFIRHistoryScreen(tourist: widget.tourist)),
       NavItem(Icons.trip_origin_rounded, 'Start Trip', const StartTripScreen()),
       NavItem(Icons.history_rounded, 'Trip History', const TripHistoryScreen()),
       NavItem(Icons.location_history_rounded, 'Location History', const LocationHistoryScreen()),

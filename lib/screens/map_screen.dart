@@ -402,7 +402,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
             children: [
               // OpenStreetMap tile layer
               TileLayer(
-                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                urlTemplate: ApiService.osmTileUrl,
                 userAgentPackageName: 'com.tourist.safety',
               ),
               

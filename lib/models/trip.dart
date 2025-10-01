@@ -6,6 +6,7 @@ class Trip {
   final DateTime startDate;
   final DateTime? endDate;
   final DateTime createdAt;
+  final double? durationHours;
 
   Trip({
     required this.id,
@@ -15,17 +16,21 @@ class Trip {
     required this.startDate,
     this.endDate,
     required this.createdAt,
+    this.durationHours,
   });
 
   factory Trip.fromJson(Map<String, dynamic> json) {
     return Trip(
-      id: json['id'],
-      destination: json['destination'],
+      id: json['id'] ?? json['trip_id'] ?? 0,
+      destination: json['destination'] ?? '',
       itinerary: json['itinerary'],
-      status: json['status'],
+      status: json['status'] ?? 'active',
       startDate: DateTime.parse(json['start_date']),
       endDate: json['end_date'] != null ? DateTime.parse(json['end_date']) : null,
-      createdAt: DateTime.parse(json['created_at']),
+      createdAt: json['created_at'] != null 
+          ? DateTime.parse(json['created_at'])
+          : DateTime.now(),
+      durationHours: json['duration_hours']?.toDouble(),
     );
   }
 
@@ -38,6 +43,15 @@ class Trip {
       'start_date': startDate.toIso8601String(),
       'end_date': endDate?.toIso8601String(),
       'created_at': createdAt.toIso8601String(),
+      'duration_hours': durationHours,
+    };
+  }
+
+  /// Generate API payload for starting a trip
+  Map<String, dynamic> toStartTripJson() {
+    return {
+      'destination': destination,
+      if (itinerary != null) 'itinerary': itinerary,
     };
   }
 
