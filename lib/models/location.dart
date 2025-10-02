@@ -40,7 +40,11 @@ class LocationData {
       altitude: json['altitude']?.toDouble(),
       speed: json['speed']?.toDouble(),
       heading: json['heading']?.toDouble(),
-      safetyScore: json['safety_score'],
+      safetyScore: json['safety_score'] != null 
+          ? (json['safety_score'] is int 
+              ? json['safety_score'] as int
+              : (json['safety_score'] as double).round())
+          : null,
       riskLevel: json['risk_level'],
     );
   }

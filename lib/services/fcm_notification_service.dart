@@ -165,9 +165,22 @@ class FCMNotificationService {
         enableVibration: true,
       );
 
+      // Silent status channel for location updates (no sound, no vibration, no popup)
+      const AndroidNotificationChannel silentChannel = AndroidNotificationChannel(
+        'location_status_channel',
+        'Location Status',
+        description: 'Silent location sharing status updates',
+        importance: Importance.low,
+        playSound: false,
+        enableVibration: false,
+        enableLights: false,
+        showBadge: false,
+      );
+
       // Create channels
       await androidPlugin.createNotificationChannel(criticalChannel);
       await androidPlugin.createNotificationChannel(highPriorityChannel);
+      await androidPlugin.createNotificationChannel(silentChannel);
       
       AppLogger.service('✅ Notification channels created');
     }
@@ -464,6 +477,66 @@ class FCMNotificationService {
     } catch (e) {
       AppLogger.service('❌ Device registration verification failed: $e', isError: true);
       return false;
+    }
+  }
+
+  /// Show silent notification for location sharing status (appears only in notification bar)
+  Future<void> showSilentLocationNotification({
+    required double latitude,
+    required double longitude,
+  }) async {
+    try {
+      // Format time
+      final now = DateTime.now();
+      final timeStr = '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
+      
+      // Format coordinates
+      final coordStr = '${latitude.toStringAsFixed(6)}, ${longitude.toStringAsFixed(6)}';
+      
+      // Silent notification settings - appears only in status bar
+      final AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
+        'location_status_channel',
+        'Location Status',
+        channelDescription: 'Silent location sharing status updates',
+        importance: Importance.low,
+        priority: Priority.low,
+        playSound: false,
+        enableVibration: false,
+        enableLights: false,
+        ongoing: false,
+        autoCancel: false,
+        silent: true,
+        icon: '@mipmap/ic_launcher',
+        styleInformation: BigTextStyleInformation(
+          'Location shared at $timeStr\n$coordStr',
+          htmlFormatBigText: false,
+          contentTitle: '📍 Location Shared',
+          htmlFormatContentTitle: false,
+        ),
+      );
+
+      const DarwinNotificationDetails iosDetails = DarwinNotificationDetails(
+        presentAlert: false,
+        presentBadge: true,
+        presentSound: false,
+        interruptionLevel: InterruptionLevel.passive,
+      );
+
+      final NotificationDetails details = NotificationDetails(
+        android: androidDetails,
+        iOS: iosDetails,
+      );
+
+      await _localNotifications.show(
+        0, // Fixed ID to update existing notification
+        '📍 Location Shared',
+        'Location shared at $timeStr',
+        details,
+      );
+
+      AppLogger.service('Silent location notification sent: $coordStr');
+    } catch (e) {
+      AppLogger.service('Failed to show silent location notification: $e', isError: true);
     }
   }
 }

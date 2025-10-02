@@ -4,7 +4,7 @@ import 'package:intl/intl.dart';
 
 import '../models/tourist.dart';
 import '../widgets/modern_app_wrapper.dart';
-import 'efir_history_screen.dart';
+
 
 class EFIRSuccessScreen extends StatelessWidget {
   final String firNumber;
@@ -219,46 +219,24 @@ class EFIRSuccessScreen extends StatelessWidget {
             ),
             const SizedBox(height: 32),
 
-            // Action Buttons
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (context) => EFIRHistoryScreen(tourist: tourist),
-                        ),
-                      );
-                    },
-                    icon: const Icon(Icons.history),
-                    label: const Text('View History'),
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                    ),
+            // Action Button
+            ElevatedButton.icon(
+              onPressed: () {
+                Navigator.of(context).pushAndRemoveUntil(
+                  MaterialPageRoute(
+                    builder: (context) => ModernAppWrapper(tourist: tourist),
                   ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: () {
-                      Navigator.of(context).pushAndRemoveUntil(
-                        MaterialPageRoute(
-                          builder: (context) => ModernAppWrapper(tourist: tourist),
-                        ),
-                        (route) => false,
-                      );
-                    },
-                    icon: const Icon(Icons.home),
-                    label: const Text('Go Home'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.green.shade700,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                    ),
-                  ),
-                ),
-              ],
+                  (route) => false,
+                );
+              },
+              icon: const Icon(Icons.home),
+              label: const Text('Go Home'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.green.shade700,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                minimumSize: const Size(double.infinity, 50),
+              ),
             ),
             const SizedBox(height: 16),
           ],

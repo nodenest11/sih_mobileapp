@@ -6,7 +6,7 @@ import '../screens/location_history_screen.dart';
 import '../screens/emergency_contacts_screen.dart';
 import '../screens/settings_screen.dart';
 import '../screens/efir_form_screen.dart';
-import '../screens/efir_history_screen.dart';
+
 import '../screens/notification_screen.dart';
 import '../screens/login_screen.dart';
 
@@ -111,12 +111,6 @@ class ModernSidebar extends StatelessWidget {
           Icons.description_rounded,
           'File E-FIR',
           EFIRFormScreen(tourist: tourist),
-        ),
-        _buildItem(
-          context,
-          Icons.history_edu_rounded,
-          'E-FIR History',
-          EFIRHistoryScreen(tourist: tourist),
         ),
         _buildItem(
           context,

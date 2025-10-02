@@ -1,5 +1,6 @@
 import "dart:convert";
 import "dart:io";
+import "dart:math" as math;
 import "package:http/http.dart" as http;
 import "package:shared_preferences/shared_preferences.dart";
 import "package:flutter_dotenv/flutter_dotenv.dart";
@@ -661,6 +662,106 @@ class ApiService {
     }
   }
 
+  /// Get nearby risks for a specific location
+  /// Endpoint: GET /location/nearby-risks?radius_km=2.0
+  Future<Map<String, dynamic>> getNearbyRisks({
+    double? lat,
+    double? lon,
+    double radiusKm = 2.0,
+  }) async {
+    await _ensureInitialized();
+    
+    try {
+      final requestHeaders = await safeHeaders;
+      
+      // Build query parameters
+      final queryParams = <String, String>{
+        'radius_km': radiusKm.toString(),
+      };
+      if (lat != null) queryParams['lat'] = lat.toString();
+      if (lon != null) queryParams['lon'] = lon.toString();
+      
+      final uri = Uri.parse("$baseUrl$apiPrefix/location/nearby-risks")
+          .replace(queryParameters: queryParams);
+      
+      _logRequest('GET', '/location/nearby-risks', headers: requestHeaders);
+      
+      final response = await client.get(uri, headers: requestHeaders).timeout(timeout);
+      
+      _logResponse('/location/nearby-risks', response.statusCode, body: response.body);
+      
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        AppLogger.info('Nearby risks retrieved successfully');
+        return {
+          "success": true,
+          ...data,
+        };
+      } else if (response.statusCode == 401 || response.statusCode == 403) {
+        await handleAuthError(response.statusCode, '/location/nearby-risks');
+        return {
+          "success": false,
+          "message": response.statusCode == 401 
+            ? "Authentication required. Please login again."
+            : "Access denied. Invalid token or permissions.",
+          "auth_error": true,
+        };
+      }
+
+      throw HttpException("Failed to get nearby risks: ${response.statusCode}");
+    } catch (e) {
+      AppLogger.error('Nearby risks request failed', error: e);
+      return {
+        "success": false,
+        "message": "Failed to get nearby risks: ${e.toString()}",
+      };
+    }
+  }
+
+  /// Get detailed safety analysis for current location
+  /// Endpoint: GET /location/safety-analysis
+  Future<Map<String, dynamic>> getSafetyAnalysis() async {
+    await _ensureInitialized();
+    
+    try {
+      final requestHeaders = await safeHeaders;
+      _logRequest('GET', '/location/safety-analysis', headers: requestHeaders);
+      
+      final response = await client.get(
+        Uri.parse("$baseUrl$apiPrefix/location/safety-analysis"),
+        headers: requestHeaders,
+      ).timeout(timeout);
+
+      _logResponse('/location/safety-analysis', response.statusCode, body: response.body);
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        AppLogger.info('Safety analysis retrieved successfully');
+        return {
+          "success": true,
+          ...data,
+        };
+      } else if (response.statusCode == 401 || response.statusCode == 403) {
+        await handleAuthError(response.statusCode, '/location/safety-analysis');
+        return {
+          "success": false,
+          "message": response.statusCode == 401 
+            ? "Authentication required. Please login again."
+            : "Access denied. Invalid token or permissions.",
+          "auth_error": true,
+        };
+      }
+
+      throw HttpException("Failed to get safety analysis: ${response.statusCode}");
+    } catch (e) {
+      AppLogger.error('Safety analysis request failed', error: e);
+      return {
+        "success": false,
+        "message": "Failed to get safety analysis: ${e.toString()}",
+      };
+    }
+  }
+
   Future<Map<String, dynamic>> triggerSOS() async {
     await _ensureInitialized(); // Ensure auth is initialized before API calls
     
@@ -745,6 +846,72 @@ class ApiService {
     } catch (e) {
       AppLogger.service('Location search failed', isError: true);
       return [];
+    }
+  }
+
+  // Reverse geocoding to get address from coordinates
+  Future<String> reverseGeocode({
+    required double lat,
+    required double lon,
+  }) async {
+    try {
+      final response = await client.get(
+        Uri.parse("https://nominatim.openstreetmap.org/reverse?format=json&lat=$lat&lon=$lon&zoom=18&addressdetails=1"),
+        headers: {"User-Agent": "TouristSafetyApp/1.0"},
+      ).timeout(timeout);
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        
+        // Try to build a meaningful address from the response
+        final address = data['address'] as Map<String, dynamic>?;
+        if (address != null) {
+          List<String> parts = [];
+          
+          // Add specific location (building, shop, etc.)
+          if (address['building'] != null) parts.add(address['building']);
+          if (address['shop'] != null) parts.add(address['shop']);
+          if (address['tourism'] != null) parts.add(address['tourism']);
+          if (address['amenity'] != null) parts.add(address['amenity']);
+          
+          // Add road/street
+          if (address['road'] != null) parts.add(address['road']);
+          
+          // Add locality
+          if (address['neighbourhood'] != null) {
+            parts.add(address['neighbourhood']);
+          } else if (address['suburb'] != null) {
+            parts.add(address['suburb']);
+          }
+          
+          // Add city
+          if (address['city'] != null) {
+            parts.add(address['city']);
+          } else if (address['town'] != null) {
+            parts.add(address['town']);
+          } else if (address['village'] != null) {
+            parts.add(address['village']);
+          }
+          
+          // Add state
+          if (address['state'] != null) parts.add(address['state']);
+          
+          // Return formatted address
+          if (parts.isNotEmpty) {
+            return parts.join(', ');
+          }
+        }
+        
+        // Fallback to display_name if address parsing fails
+        return data['display_name'] ?? '${lat.toStringAsFixed(6)}, ${lon.toStringAsFixed(6)}';
+      }
+
+      // If request fails, return coordinates
+      return '${lat.toStringAsFixed(6)}, ${lon.toStringAsFixed(6)}';
+    } catch (e) {
+      AppLogger.service('Reverse geocoding failed: $e', isError: true);
+      // Return coordinates as fallback
+      return '${lat.toStringAsFixed(6)}, ${lon.toStringAsFixed(6)}';
     }
   }
 
@@ -848,46 +1015,47 @@ class ApiService {
   }) async {
     try {
       final requestHeaders = await safeHeaders;
-      _logRequest('GET', '/alerts/recent', headers: requestHeaders);
       
-      // Get recent alerts to generate heatmap data
+      // Use the correct heatmap/alerts endpoint
+      final endpoint = '/heatmap/alerts';
+      
+      // Build query parameters
+      final queryParams = <String, String>{
+        'hours_back': ((daysPast ?? 30) * 24).toString(), // Convert days to hours
+        'severity': 'high', // Only high-severity alerts (includes SOS)
+      };
+      
+      // Add bounding box if provided
+      if (minLat != null) queryParams['bounds_south'] = minLat.toStringAsFixed(6);
+      if (maxLat != null) queryParams['bounds_north'] = maxLat.toStringAsFixed(6);
+      if (minLng != null) queryParams['bounds_west'] = minLng.toStringAsFixed(6);
+      if (maxLng != null) queryParams['bounds_east'] = maxLng.toStringAsFixed(6);
+      
+      final uri = Uri.parse('$baseUrl$apiPrefix$endpoint').replace(
+        queryParameters: queryParams,
+      );
+      
+      _logRequest('GET', endpoint, headers: requestHeaders);
+      
       final response = await client.get(
-        Uri.parse("$baseUrl$apiPrefix/alerts/recent?limit=1000&severity=high"),
+        uri,
         headers: requestHeaders,
       ).timeout(timeout);
       
-      _logResponse('/alerts/recent', response.statusCode, body: response.body);
+      _logResponse(endpoint, response.statusCode);
       
       if (response.statusCode == 200) {
-        final List<dynamic> data = jsonDecode(response.body);
+        final Map<String, dynamic> responseData = jsonDecode(response.body);
+        final List<dynamic> alerts = responseData['alerts'] ?? [];
         
-        // Filter for SOS/panic alerts and recent data
-        final panicAlerts = data.where((item) {
-          if (item["type"]?.toLowerCase() != "sos") return false;
-          
-          // Check date filter
-          if (daysPast != null) {
-            final timestamp = DateTime.tryParse(item["created_at"] ?? "");
-            if (timestamp == null || 
-                timestamp.isBefore(DateTime.now().subtract(Duration(days: daysPast)))) {
-              return false;
-            }
-          }
-          
-          // Check location bounds
-          final location = item["location"];
-          if (location == null) return false;
-          final lat = location["lat"]?.toDouble();
-          final lng = location["lon"]?.toDouble();
-          if (lat == null || lng == null) return false;
-          
-          if (minLat != null && lat < minLat) return false;
-          if (maxLat != null && lat > maxLat) return false;
-          if (minLng != null && lng < minLng) return false;
-          if (maxLng != null && lng > maxLng) return false;
-          
-          return true;
+        AppLogger.info('📊 Received ${alerts.length} alerts for heatmap');
+        
+        // Filter for SOS/panic alerts
+        final panicAlerts = alerts.where((alert) {
+          return alert["type"]?.toLowerCase() == "sos";
         }).toList();
+        
+        AppLogger.info('🚨 Filtered to ${panicAlerts.length} SOS alerts for heatmap');
 
         return _aggregatePanicAlertsFromBackend(panicAlerts);
       } else if (response.statusCode == 401 || response.statusCode == 403) {
@@ -957,6 +1125,260 @@ class ApiService {
     }).toList();
   }
 
+  /// Get recent panic alerts near a location (privacy-protected, aggregated data only)
+  /// Returns panic alerts within the specified radius, aggregated to protect individual privacy
+  Future<List<GeospatialHeatPoint>> getRecentPanicAlerts({
+    required double centerLat,
+    required double centerLon,
+    required double radiusKm,
+    int minutesPast = 10,
+  }) async {
+    try {
+      final requestHeaders = await safeHeaders;
+      
+      // Calculate bounding box for the radius
+      const double kmPerDegree = 111.0; // Approximate km per degree of latitude
+      final latDelta = radiusKm / kmPerDegree;
+      final lonDelta = radiusKm / (kmPerDegree * math.cos(centerLat * math.pi / 180));
+      
+      final boundsNorth = centerLat + latDelta;
+      final boundsSouth = centerLat - latDelta;
+      final boundsEast = centerLon + lonDelta;
+      final boundsWest = centerLon - lonDelta;
+      
+      // Convert minutes to hours (API expects hours_back parameter)
+      final hoursBack = (minutesPast / 60.0).ceil();
+      
+      // Use the correct heatmap/alerts endpoint with bounding box
+      final endpoint = '/heatmap/alerts';
+      final uri = Uri.parse('$baseUrl$apiPrefix$endpoint').replace(
+        queryParameters: {
+          'hours_back': hoursBack.toString(),
+          'severity': 'high', // Only get high-severity alerts (includes SOS)
+          'bounds_north': boundsNorth.toStringAsFixed(6),
+          'bounds_south': boundsSouth.toStringAsFixed(6),
+          'bounds_east': boundsEast.toStringAsFixed(6),
+          'bounds_west': boundsWest.toStringAsFixed(6),
+        },
+      );
+      
+      _logRequest('GET', endpoint, headers: requestHeaders);
+      
+      final response = await client.get(
+        uri,
+        headers: requestHeaders,
+      ).timeout(timeout);
+      
+      _logResponse(endpoint, response.statusCode);
+      
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> responseData = jsonDecode(response.body);
+        final List<dynamic> alerts = responseData['alerts'] ?? [];
+        
+        AppLogger.info('📊 Received ${alerts.length} alerts from heatmap API');
+        
+        // Filter for SOS alerts within the exact radius and time window
+        final recentPanicAlerts = alerts.where((alert) {
+          // Check if it's an SOS alert
+          if (alert["type"]?.toLowerCase() != "sos") return false;
+          
+          // Check timestamp (within specified minutes)
+          final timestamp = DateTime.tryParse(alert["created_at"] ?? "");
+          if (timestamp == null) return false;
+          
+          final minutesAgo = DateTime.now().difference(timestamp).inMinutes;
+          if (minutesAgo > minutesPast) return false;
+          
+          // Check location exists
+          final location = alert["location"];
+          if (location == null) return false;
+          
+          final lat = location["lat"]?.toDouble();
+          final lon = location["lon"]?.toDouble();
+          if (lat == null || lon == null) return false;
+          
+          // Calculate actual distance to verify it's within radius
+          final distance = _calculateDistance(centerLat, centerLon, lat, lon);
+          return distance <= radiusKm;
+        }).toList();
+        
+        AppLogger.info('🚨 Filtered to ${recentPanicAlerts.length} SOS alerts within ${radiusKm}km and ${minutesPast}min');
+        
+        // Convert to GeospatialHeatPoint format
+        return _convertHeatmapAlertsToHeatPoints(recentPanicAlerts);
+      } else if (response.statusCode == 401 || response.statusCode == 403) {
+        AppLogger.auth('Alert data access denied - returning empty list', isError: false);
+        return [];
+      }
+      
+      AppLogger.api('Recent panic alerts request failed: ${response.statusCode}', isError: true);
+      return [];
+    } catch (e) {
+      AppLogger.error('Recent panic alerts request failed: $e');
+      return [];
+    }
+  }
+
+  /// Convert heatmap alerts API format to GeospatialHeatPoint
+  List<GeospatialHeatPoint> _convertHeatmapAlertsToHeatPoints(List<dynamic> alerts) {
+    return alerts.map<GeospatialHeatPoint>((alert) {
+      final location = alert["location"];
+      final lat = (location["lat"] as num).toDouble();
+      final lon = (location["lon"] as num).toDouble();
+      
+      // Use severity and weight to calculate intensity
+      final severity = alert["severity"]?.toString() ?? "medium";
+      final weight = (alert["weight"] as num?)?.toDouble() ?? 0.5;
+      
+      // Map severity to intensity (0.0 - 1.0)
+      double intensity;
+      switch (severity.toLowerCase()) {
+        case 'critical':
+          intensity = 1.0;
+          break;
+        case 'high':
+          intensity = 0.8;
+          break;
+        case 'medium':
+          intensity = 0.6;
+          break;
+        case 'low':
+          intensity = 0.4;
+          break;
+        default:
+          intensity = weight; // Use weight if severity unknown
+      }
+      
+      final description = alert["description"]?.toString() ?? 
+                         alert["title"]?.toString() ?? 
+                         "Emergency alert";
+      
+      final timestamp = DateTime.tryParse(alert["created_at"] ?? "") ?? DateTime.now();
+      
+      return GeospatialHeatPoint.fromPanicAlert(
+        latitude: lat,
+        longitude: lon,
+        intensity: intensity,
+        alertCount: 1, // Each heatmap alert represents aggregated data
+        description: description,
+        timestamp: timestamp,
+      );
+    }).toList();
+  }
+
+  /// Get active panic alerts from public endpoint (No authentication required)
+  /// This is a PUBLIC endpoint that provides anonymized emergency alerts for community safety
+  Future<List<Map<String, dynamic>>> getPublicPanicAlerts({
+    int limit = 50,
+    int hoursBack = 24,
+  }) async {
+    try {
+      // PUBLIC ENDPOINT - No authentication required
+      final endpoint = '/notify/public/panic-alerts';
+      
+      final uri = Uri.parse('$baseUrl$apiPrefix$endpoint').replace(
+        queryParameters: {
+          'limit': limit.toString(),
+          'hours_back': hoursBack.toString(),
+        },
+      );
+      
+      AppLogger.info('📡 Fetching public panic alerts (no auth required)');
+      
+      // Use client.get WITHOUT authentication headers
+      final response = await client.get(uri).timeout(timeout);
+      
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> responseData = jsonDecode(response.body);
+        final List<dynamic> alerts = responseData['alerts'] ?? [];
+        final int totalAlerts = responseData['total_alerts'] ?? 0;
+        final int activeCount = responseData['active_count'] ?? 0;
+        
+        AppLogger.info('🚨 Public panic alerts: $activeCount active / $totalAlerts total');
+        
+        // Convert to map format for easier use
+        return alerts.map<Map<String, dynamic>>((alert) {
+          return {
+            'alert_id': alert['alert_id'],
+            'type': alert['type'],
+            'severity': alert['severity'],
+            'title': alert['title'],
+            'description': alert['description'],
+            'location': {
+              'lat': alert['location']['lat'],
+              'lon': alert['location']['lon'],
+              'timestamp': alert['location']['timestamp'],
+            },
+            'timestamp': alert['timestamp'],
+            'time_ago': alert['time_ago'],
+            'status': alert['status'], // 'active' (<1hr) or 'older' (1-24hr)
+          };
+        }).toList();
+      }
+      
+      AppLogger.api('Public panic alerts request failed: ${response.statusCode}', isError: true);
+      return [];
+    } catch (e) {
+      AppLogger.error('Public panic alerts request failed: $e');
+      return [];
+    }
+  }
+
+  /// Convert public panic alerts to GeospatialHeatPoint format for map display
+  List<GeospatialHeatPoint> convertPublicAlertsToHeatPoints(List<Map<String, dynamic>> alerts) {
+    return alerts.map<GeospatialHeatPoint>((alert) {
+      final location = alert['location'] as Map<String, dynamic>;
+      final lat = (location['lat'] as num).toDouble();
+      final lon = (location['lon'] as num).toDouble();
+      
+      // Map severity to intensity
+      final severity = alert['severity']?.toString() ?? 'medium';
+      final status = alert['status']?.toString() ?? 'older';
+      
+      double intensity;
+      if (status == 'active') {
+        // Active alerts (<1 hour) are high priority
+        intensity = severity == 'critical' ? 1.0 : 0.9;
+      } else {
+        // Older alerts (1-24 hours) have lower intensity
+        intensity = severity == 'critical' ? 0.7 : 0.5;
+      }
+      
+      final title = alert['title']?.toString() ?? 'Emergency Alert';
+      final timeAgo = alert['time_ago']?.toString() ?? 'unknown';
+      final description = '$title • $timeAgo ago';
+      
+      final timestamp = DateTime.tryParse(alert['timestamp'] ?? '') ?? DateTime.now();
+      
+      return GeospatialHeatPoint.fromPanicAlert(
+        latitude: lat,
+        longitude: lon,
+        intensity: intensity,
+        alertCount: 1,
+        description: description,
+        timestamp: timestamp,
+      );
+    }).toList();
+  }
+
+  /// Calculate distance between two points in kilometers (Haversine formula)
+  double _calculateDistance(double lat1, double lon1, double lat2, double lon2) {
+    const double earthRadius = 6371.0; // km
+    final dLat = _degreesToRadians(lat2 - lat1);
+    final dLon = _degreesToRadians(lon2 - lon1);
+    
+    final a = math.sin(dLat / 2) * math.sin(dLat / 2) +
+        math.cos(_degreesToRadians(lat1)) * math.cos(_degreesToRadians(lat2)) *
+        math.sin(dLon / 2) * math.sin(dLon / 2);
+    final c = 2 * math.asin(math.sqrt(a));
+    
+    return earthRadius * c;
+  }
+
+  double _degreesToRadians(double degrees) {
+    return degrees * math.pi / 180;
+  }
+
   // Additional missing methods for compatibility
   Future<List<RestrictedZone>> getRestrictedZones() async {
     await _ensureInitialized(); // Ensure auth is initialized before API calls
@@ -977,11 +1399,24 @@ class ApiService {
         final Map<String, dynamic> data = jsonDecode(response.body);
         final List<dynamic> zones = data['zones'] ?? [];
         
-        final List<RestrictedZone> restrictedZones = zones
-            .map<RestrictedZone>((item) => RestrictedZone.fromJson(item))
-            .toList();
+        // Filter out zones with invalid/missing coordinates instead of crashing
+        final List<RestrictedZone> restrictedZones = [];
+        int skippedCount = 0;
         
-        AppLogger.info('Loaded ${restrictedZones.length} restricted zones from heatmap API');
+        for (var item in zones) {
+          try {
+            restrictedZones.add(RestrictedZone.fromJson(item));
+          } catch (e) {
+            skippedCount++;
+            AppLogger.warning('Skipped invalid zone: ${item['name'] ?? 'Unknown'} - Missing coordinates data');
+          }
+        }
+        
+        if (skippedCount > 0) {
+          AppLogger.warning('⚠️ Skipped $skippedCount zones with invalid/missing coordinates');
+        }
+        
+        AppLogger.info('Loaded ${restrictedZones.length} valid restricted zones from heatmap API');
         return restrictedZones;
       } else if (response.statusCode == 401 || response.statusCode == 403) {
         await handleAuthError(response.statusCode, '/heatmap/zones/public');

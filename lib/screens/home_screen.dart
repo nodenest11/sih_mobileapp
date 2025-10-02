@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'dart:async';
 import '../models/tourist.dart';
 import '../models/location.dart';
@@ -394,24 +395,35 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
     }
   }
 
-  /// Show a fallback safety score when all else fails
+  /// Show error state when safety score cannot be loaded
   void _showFallbackSafetyScore() {
-    final fallbackScore = SafetyScore(
-      touristId: widget.tourist.id,
-      score: 75, // Default to medium-safe
-      riskLevel: 'medium',
-      scoreBreakdown: {},
-      componentWeights: {},
-      recommendations: ['Please check your connection for updated safety information.'],
-      lastUpdated: DateTime.now(),
-    );
-    
+    // No mock data - show null to trigger error UI
     setState(() {
-      _safetyScore = fallbackScore;
+      _safetyScore = null;
       _safetyScoreOfflineMode = true;
     });
     
-    AppLogger.warning('🔒 Using fallback safety score: 75% (medium)');
+    AppLogger.warning('❌ Unable to load safety score from API - showing error state');
+    
+    // Show error message to user
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Row(
+            children: [
+              Icon(Icons.error_outline, color: Colors.white),
+              SizedBox(width: 12),
+              Expanded(
+                child: Text('Unable to load safety score. Please check your connection and try again.'),
+              ),
+            ],
+          ),
+          backgroundColor: Color(0xFFEF4444),
+          duration: Duration(seconds: 5),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
   }
 
   /// Schedule periodic refresh of safety score
@@ -664,14 +676,18 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
-                      'Current Location',
-                      style: TextStyle(
+                    Text(
+                      _currentLocationInfo != null 
+                        ? (_currentLocationInfo!['address'] ?? 'Current Location')
+                        : 'Current Location',
+                      style: const TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.w600,
                         color: Color(0xFF0F172A),
                         letterSpacing: 0.2,
                       ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                     const SizedBox(height: 2),
                     Text(
@@ -709,24 +725,85 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
                 color: const Color(0xFFF8FAFC),
                 borderRadius: BorderRadius.circular(8),
               ),
-              child: Row(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Icon(
-                    Icons.place_outlined,
-                    size: 16,
-                    color: Color(0xFF64748B),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      _currentLocationInfo!['address'],
-                      style: const TextStyle(
-                        fontSize: 13,
-                        color: Color(0xFF475569),
-                        height: 1.4,
+                  // Coordinates
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.my_location,
+                        size: 14,
+                        color: Color(0xFF64748B),
                       ),
-                    ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          _currentLocationInfo!['coordinates'] ?? 
+                          '${_currentLocationInfo!['lat']?.toStringAsFixed(6) ?? '0.000000'}, ${_currentLocationInfo!['lng']?.toStringAsFixed(6) ?? '0.000000'}',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Color(0xFF64748B),
+                            fontFamily: 'monospace',
+                          ),
+                        ),
+                      ),
+                      // Copy coordinates button
+                      InkWell(
+                        onTap: () async {
+                          // Copy coordinates to clipboard
+                          final coords = _currentLocationInfo!['coordinates'] ?? 
+                              '${_currentLocationInfo!['lat']}, ${_currentLocationInfo!['lng']}';
+                          await Clipboard.setData(ClipboardData(text: coords));
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Row(
+                                  children: [
+                                    Icon(Icons.check_circle, color: Colors.white, size: 20),
+                                    SizedBox(width: 12),
+                                    Text('Coordinates copied to clipboard'),
+                                  ],
+                                ),
+                                backgroundColor: Color(0xFF10B981),
+                                duration: Duration(seconds: 2),
+                                behavior: SnackBarBehavior.floating,
+                              ),
+                            );
+                          }
+                        },
+                        child: const Padding(
+                          padding: EdgeInsets.all(4.0),
+                          child: Icon(
+                            Icons.copy,
+                            size: 14,
+                            color: Color(0xFF64748B),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
+                  // Accuracy indicator
+                  if (_currentLocationInfo!['accuracy'] != null) ...[
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        const Icon(
+                          Icons.gps_fixed,
+                          size: 12,
+                          color: Color(0xFF10B981),
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          'Accuracy: ${_currentLocationInfo!['accuracy']}',
+                          style: const TextStyle(
+                            fontSize: 11,
+                            color: Color(0xFF10B981),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ],
               ),
             ),

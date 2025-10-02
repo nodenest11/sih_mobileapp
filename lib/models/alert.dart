@@ -191,8 +191,10 @@ class RestrictedZone {
         coordinates.add(LatLng(coord['lat'].toDouble(), coord['lon'].toDouble()));
       }
     } else {
-      // Fallback: Generate mock polygon coordinates
-      coordinates = _generateMockPolygon(json['id']?.toString() ?? '0');
+      // No coordinates provided by API - throw error instead of using mock data
+      throw FormatException(
+        'RestrictedZone API response must include either center+radius or polygon_coordinates. Zone ID: ${json['id']}'
+      );
     }
 
     return RestrictedZone(
@@ -242,42 +244,6 @@ class RestrictedZone {
       double angle = (i * 360 / numPoints) * (math.pi / 180);
       double lat = center.latitude + radiusInDegrees * math.cos(angle);
       double lon = center.longitude + radiusInDegrees * math.sin(angle) / math.cos(center.latitude * (math.pi / 180));
-      polygon.add(LatLng(lat, lon));
-    }
-    
-    return polygon;
-  }
-
-  static List<LatLng> _generateMockPolygon(String zoneId) {
-    // Generate mock coordinates based on zone ID for demonstration
-    // In a real app, these would come from the API or be configured
-    
-    // Base coordinates around different areas (example locations)
-    List<Map<String, double>> baseLocations = [
-      {'lat': 28.6139, 'lon': 77.2090}, // Delhi
-      {'lat': 19.0760, 'lon': 72.8777}, // Mumbai
-      {'lat': 12.9716, 'lon': 77.5946}, // Bangalore
-      {'lat': 13.0827, 'lon': 80.2707}, // Chennai
-      {'lat': 22.5726, 'lon': 88.3639}, // Kolkata
-      {'lat': 23.0225, 'lon': 72.5714}, // Ahmedabad
-      {'lat': 18.5204, 'lon': 73.8567}, // Pune
-      {'lat': 26.9124, 'lon': 75.7873}, // Jaipur
-    ];
-    
-    int index = int.tryParse(zoneId) ?? 0;
-    Map<String, double> baseLocation = baseLocations[index % baseLocations.length];
-    
-    double centerLat = baseLocation['lat']!;
-    double centerLon = baseLocation['lon']!;
-    
-    // Create a circular polygon with radius of ~1km
-    double radiusInDegrees = 0.009; // Approximately 1km
-    List<LatLng> polygon = [];
-    
-    for (int i = 0; i < 8; i++) {
-      double angle = (i * 45) * (math.pi / 180); // 45-degree increments
-      double lat = centerLat + radiusInDegrees * math.cos(angle);
-      double lon = centerLon + radiusInDegrees * math.sin(angle);
       polygon.add(LatLng(lat, lon));
     }
     

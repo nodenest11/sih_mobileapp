@@ -74,8 +74,8 @@ class SafetyScoreManager {
       };
     } catch (e) {
       AppLogger.error('🚨 Error in safety score calculation: $e');
-      // Fallback to basic calculation
-      return _fallbackSafetyScore(cachedScore);
+      // No mock data - throw error and let caller handle it
+      rethrow;
     }
   }
 
@@ -268,18 +268,7 @@ class SafetyScoreManager {
     }
   }
 
-  /// Fallback safety score calculation when API fails
-  static Map<String, dynamic> _fallbackSafetyScore(int? previousScore) {
-    int fallbackScore = previousScore ?? 75; // Default to medium-safe
-    
-    return {
-      'safety_score': fallbackScore,
-      'risk_level': fallbackScore >= 80 ? 'Safe' : fallbackScore >= 60 ? 'Medium' : 'High Risk',
-      'last_updated': DateTime.now().toIso8601String(),
-      'calculation_method': 'offline_fallback',
-      'offline': true,
-    };
-  }
+
 
   /// Calculate distance between two coordinates (Haversine formula)
   static double _calculateDistance(double lat1, double lon1, double lat2, double lon2) {

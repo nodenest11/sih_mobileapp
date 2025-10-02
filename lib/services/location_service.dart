@@ -7,12 +7,14 @@ import 'package:permission_handler/permission_handler.dart';
 import '../models/location.dart';
 import 'api_service.dart';
 import 'background_location_service.dart';
+import 'fcm_notification_service.dart';
 import '../utils/logger.dart';
 
 class LocationService {
-  static const int _locationUpdateInterval = 60; // seconds (1 minute)
+  static const int _locationUpdateInterval = 300; // seconds (5 minutes)
   
   final ApiService _apiService = ApiService();
+  final FCMNotificationService _notificationService = FCMNotificationService();
   StreamSubscription<Position>? _positionSubscription;
   Timer? _updateTimer;
   String? _currentTouristId;
@@ -49,15 +51,30 @@ class LocationService {
 
       _lastKnownPosition = position;
       
+      // Get human-readable address using reverse geocoding
+      String address;
+      try {
+        address = await _apiService.reverseGeocode(
+          lat: position.latitude,
+          lon: position.longitude,
+        );
+      } catch (e) {
+        // Fallback to coordinates if reverse geocoding fails
+        address = '${position.latitude.toStringAsFixed(6)}, ${position.longitude.toStringAsFixed(6)}';
+      }
+      
       // Create a formatted location response
       final locationInfo = {
         'position': position,
-        'address': '${position.latitude.toStringAsFixed(6)}, ${position.longitude.toStringAsFixed(6)}',
+        'lat': position.latitude,
+        'lng': position.longitude,
+        'address': address,
+        'coordinates': '${position.latitude.toStringAsFixed(6)}, ${position.longitude.toStringAsFixed(6)}',
         'accuracy': '±${position.accuracy.round()}m',
         'timestamp': DateTime.now(),
       };
 
-      _addStatus('Current location: ${locationInfo['address']}');
+      _addStatus('Location sharing active');
       return locationInfo;
     } catch (e) {
       _addStatus('Your location will be sharing');
@@ -162,7 +179,10 @@ class LocationService {
       // Enable wake lock to prevent device from sleeping
       await WakelockPlus.enable();
       
-      // Initialize background location service safely
+      // DISABLED: Background service causes isolate errors when app is killed/restarted
+      // The foreground service with wake lock is sufficient for location tracking
+      // If needed in future, the plugin needs to be updated to handle isolate errors
+      /*
       try {
         await BackgroundLocationService.initializeService();
         AppLogger.service('Background location service initialized successfully');
@@ -170,6 +190,8 @@ class LocationService {
         AppLogger.service('Background service initialization failed', isError: true);
         // Continue without background service if it fails
       }
+      */
+      AppLogger.service('Using foreground location tracking only (background service disabled)');
       
       const LocationSettings locationSettings = LocationSettings(
         accuracy: LocationAccuracy.high,
@@ -190,12 +212,17 @@ class LocationService {
         },
       );
 
-      // Set up periodic updates to backend (every 60 seconds / 1 minute)
+      // Set up periodic updates to backend (every 300 seconds / 5 minutes)
       _updateTimer = Timer.periodic(
         const Duration(seconds: _locationUpdateInterval),
-        (timer) {
+        (timer) async {
           if (_lastKnownPosition != null) {
-            _sendLocationToBackend(_lastKnownPosition!);
+            await _sendLocationToBackend(_lastKnownPosition!);
+            // Show silent notification after location is shared
+            await _notificationService.showSilentLocationNotification(
+              latitude: _lastKnownPosition!.latitude,
+              longitude: _lastKnownPosition!.longitude,
+            );
           }
         },
       );
