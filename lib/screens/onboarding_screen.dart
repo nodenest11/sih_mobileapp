@@ -81,7 +81,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             Align(
               alignment: Alignment.topRight,
               child: Padding(
-                padding: const EdgeInsets.all(AppSpacing.m),
+                padding: const EdgeInsets.all(AppSpacing.md),
                 child: TextButton(
                   onPressed: _finishOnboarding,
                   child: Text(
@@ -114,7 +114,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             
             // Page indicator
             Padding(
-              padding: const EdgeInsets.symmetric(vertical: AppSpacing.l),
+              padding: const EdgeInsets.symmetric(vertical: AppSpacing.lg),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: List.generate(
@@ -137,7 +137,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             
             // Next/Get Started button
             Padding(
-              padding: const EdgeInsets.all(AppSpacing.l),
+              padding: const EdgeInsets.all(AppSpacing.lg),
               child: SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(

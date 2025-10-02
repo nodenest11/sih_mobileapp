@@ -20,7 +20,7 @@ class HeatmapLegend extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      margin: const EdgeInsets.all(AppSpacing.m),
+      margin: const EdgeInsets.all(AppSpacing.md),
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.95),
         borderRadius: BorderRadius.circular(12),
@@ -50,7 +50,7 @@ class HeatmapLegend extends StatelessWidget {
       onTap: onToggleExpanded,
       borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
       child: Padding(
-        padding: const EdgeInsets.all(AppSpacing.m),
+        padding: const EdgeInsets.all(AppSpacing.md),
         child: Row(
           children: [
             Icon(
@@ -58,7 +58,7 @@ class HeatmapLegend extends StatelessWidget {
               color: AppColors.primary,
               size: 20,
             ),
-            const SizedBox(width: AppSpacing.s),
+            const SizedBox(width: AppSpacing.sm),
             const Text(
               "Heat Layers",
               style: TextStyle(
@@ -80,13 +80,13 @@ class HeatmapLegend extends StatelessWidget {
 
   Widget _buildContent(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.all(AppSpacing.m),
+      padding: const EdgeInsets.all(AppSpacing.md),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
           _buildTypeToggles(),
-          const SizedBox(height: AppSpacing.m),
+          const SizedBox(height: AppSpacing.md),
           _buildIntensityScale(),
         ],
       ),
@@ -105,7 +105,7 @@ class HeatmapLegend extends StatelessWidget {
             color: Color(0xFF6B7280),
           ),
         ),
-        const SizedBox(height: AppSpacing.s),
+        const SizedBox(height: AppSpacing.sm),
         ...HeatPointType.values.map(_buildTypeToggle),
       ],
     );
@@ -126,7 +126,7 @@ class HeatmapLegend extends StatelessWidget {
         onVisibilityChanged(newSet);
       },
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: AppSpacing.s / 2),
+        padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm / 2),
         child: Row(
           children: [
             AnimatedContainer(
@@ -149,7 +149,7 @@ class HeatmapLegend extends StatelessWidget {
                     )
                   : null,
             ),
-            const SizedBox(width: AppSpacing.s),
+            const SizedBox(width: AppSpacing.sm),
             Expanded(
               child: Text(
                 config.label,
@@ -178,9 +178,9 @@ class HeatmapLegend extends StatelessWidget {
             color: Color(0xFF6B7280),
           ),
         ),
-        const SizedBox(height: AppSpacing.s),
+        const SizedBox(height: AppSpacing.sm),
         _buildGradientBar(),
-        const SizedBox(height: AppSpacing.s / 2),
+        const SizedBox(height: AppSpacing.sm / 2),
         Row(
           children: [
             Text(
@@ -265,8 +265,8 @@ class HeatmapControls extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      margin: const EdgeInsets.all(AppSpacing.m),
-      padding: const EdgeInsets.all(AppSpacing.s / 2),
+      margin: const EdgeInsets.all(AppSpacing.md),
+      padding: const EdgeInsets.all(AppSpacing.sm / 2),
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.95),
         borderRadius: BorderRadius.circular(8),
@@ -287,7 +287,7 @@ class HeatmapControls extends StatelessWidget {
             isActive: heatmapVisible,
             onTap: onToggleHeatmap,
           ),
-          const SizedBox(width: AppSpacing.s / 2),
+          const SizedBox(width: AppSpacing.sm / 2),
           _buildToggleButton(
             icon: Icons.legend_toggle,
             tooltip: "Heatmap Legend",
@@ -311,7 +311,7 @@ class HeatmapControls extends StatelessWidget {
         onTap: onTap,
         borderRadius: BorderRadius.circular(6),
         child: Container(
-          padding: const EdgeInsets.all(AppSpacing.s / 2),
+          padding: const EdgeInsets.all(AppSpacing.sm / 2),
           decoration: BoxDecoration(
             color: isActive ? AppColors.primary.withValues(alpha: 0.1) : Colors.transparent,
             borderRadius: BorderRadius.circular(6),

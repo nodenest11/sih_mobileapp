@@ -7,7 +7,6 @@ class PersistentNotificationManager {
   
   static FlutterLocalNotificationsPlugin? _notificationsPlugin;
   static bool _isInitialized = false;
-  static bool _notificationShown = false;
   
   static Future<void> initialize() async {
     if (_isInitialized) return;
@@ -39,11 +38,11 @@ class PersistentNotificationManager {
     const AndroidNotificationChannel channel = AndroidNotificationChannel(
       _channelId,
       _channelName,
-      description: 'Location tracking notification',
-      importance: Importance.low,
+      description: 'High-priority location tracking for your safety',
+      importance: Importance.high, // High priority for foreground service
       playSound: false,
       enableVibration: false,
-      showBadge: false,
+      showBadge: true,
     );
 
     await _notificationsPlugin!
@@ -56,23 +55,23 @@ class PersistentNotificationManager {
   }
 
   static Future<void> showLocationNotification(String message) async {
-    if (_notificationShown) return;
-    
     if (!_isInitialized) await initialize();
     
     const AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
       _channelId,
       _channelName,
-      channelDescription: 'Location tracking is active',
-      importance: Importance.low,
-      priority: Priority.low,
-      ongoing: true,
-      autoCancel: false,
+      channelDescription: 'Your location is shared every minute for safety',
+      importance: Importance.high, // High priority
+      priority: Priority.high, // High priority
+      ongoing: true, // Cannot be dismissed
+      autoCancel: false, // Cannot be auto-cancelled
       playSound: false,
       enableVibration: false,
       icon: '@mipmap/ic_launcher',
-      showWhen: false,
+      showWhen: true, // Show timestamp
       onlyAlertOnce: true,
+      usesChronometer: true, // Show elapsed time
+      category: AndroidNotificationCategory.service,
     );
 
     const DarwinNotificationDetails iosDetails = DarwinNotificationDetails(
@@ -88,26 +87,26 @@ class PersistentNotificationManager {
 
     await _notificationsPlugin!.show(
       _notificationId,
-      'Tourist Safety App',
+      '🛡️ SafeHorizon - Protection Active',
       message,
       details,
     );
-    
-    _notificationShown = true;
   }
 
   static Future<void> startPersistentNotification() async {
-    await showLocationNotification('Location tracking is running in background');
+    await showLocationNotification('Location shared every minute for your safety');
   }
 
   static Future<void> updateLocationNotification(String locationInfo) async {
-    // Silent - no updates to avoid popups
+    if (!_isInitialized) await initialize();
+    
+    // Update notification with new location info
+    await showLocationNotification(locationInfo);
   }
 
   static Future<void> stopPersistentNotification() async {
     if (_notificationsPlugin != null) {
       await _notificationsPlugin!.cancel(_notificationId);
-      _notificationShown = false;
     }
   }
 }

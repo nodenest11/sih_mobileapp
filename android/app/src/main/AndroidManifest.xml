@@ -55,7 +55,7 @@
             </intent-filter>
         </activity>
         
-        <!-- Background Location Service -->
+        <!-- High-Priority Background Location Service -->
         <service
             android:name="id.flutter.flutter_background_service.BackgroundService"
             android:exported="false"
@@ -63,6 +63,8 @@
             android:stopWithTask="false"
             android:foregroundServiceType="location"
             android:isolatedProcess="false"
+            android:process=":background_service"
+            android:priority="1000"
             tools:replace="android:exported" />
             
         <!-- Boot Receiver to restart service -->

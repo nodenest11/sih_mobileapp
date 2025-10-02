@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
@@ -23,7 +24,7 @@ class MapScreen extends StatefulWidget {
   State<MapScreen> createState() => _MapScreenState();
 }
 
-class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
+class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin, AutomaticKeepAliveClientMixin {
   final MapController _mapController = MapController();
   final ApiService _apiService = ApiService();
   final LocationService _locationService = LocationService();
@@ -74,6 +75,9 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     _pulseController.dispose();
     super.dispose();
   }
+
+  @override
+  bool get wantKeepAlive => true; // Keep this screen alive when switching tabs
 
   Future<void> _initializeMap() async {
     await _getCurrentLocation();
@@ -350,6 +354,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context); // Must call super when using AutomaticKeepAliveClientMixin
     return Scaffold(
       appBar: AppBar(
         title: const Text('Safety Map'),
@@ -383,10 +388,35 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                   maxZoom: 18.0,
                 ),
             children: [
-              // OpenStreetMap tile layer
+              // OpenStreetMap tile layer with caching
               TileLayer(
                 urlTemplate: ApiService.osmTileUrl,
                 userAgentPackageName: 'com.tourist.safety',
+                // Enable caching and keep tiles in memory
+                keepBuffer: 5, // Keep tiles 5 zoom levels away for smoother experience
+                maxNativeZoom: 18,
+                maxZoom: 18,
+                tileBuilder: (context, tileWidget, tile) {
+                  // Add fade-in animation for tiles
+                  return FadeInImage(
+                    placeholder: MemoryImage(
+                      const Base64Decoder().convert(
+                        'R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==', // 1x1 transparent gif
+                      ),
+                    ),
+                    image: (tileWidget as Image).image,
+                    fadeInDuration: const Duration(milliseconds: 200),
+                    imageErrorBuilder: (context, error, stackTrace) {
+                      // Return placeholder on error
+                      return Container(
+                        color: Colors.grey[200],
+                        child: const Center(
+                          child: Icon(Icons.terrain, size: 16, color: Colors.grey),
+                        ),
+                      );
+                    },
+                  );
+                },
               ),
               
               // Geospatial heatmap layer

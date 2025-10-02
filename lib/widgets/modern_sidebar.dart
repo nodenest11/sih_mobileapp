@@ -1,16 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/tourist.dart';
-import '../screens/home_screen.dart';
-import '../screens/map_screen.dart';
+import '../theme/app_theme.dart';
 import '../screens/location_history_screen.dart';
 import '../screens/emergency_contacts_screen.dart';
 import '../screens/settings_screen.dart';
-import '../screens/profile_screen.dart';
-import '../screens/login_screen.dart';
 import '../screens/efir_form_screen.dart';
 import '../screens/efir_history_screen.dart';
-import '../screens/broadcast_screen.dart';
+import '../screens/notification_screen.dart';
+import '../screens/login_screen.dart';
 
 class ModernSidebar extends StatelessWidget {
   final Tourist tourist;
@@ -25,12 +23,12 @@ class ModernSidebar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Drawer(
-      backgroundColor: Colors.white,
+      backgroundColor: AppColors.surface,
       child: SafeArea(
         child: Column(
           children: [
             _buildHeader(),
-            const Divider(height: 1, color: Color(0xFFE2E8F0)),
+            const Divider(height: 1, color: AppColors.divider),
             Expanded(child: _buildNavigationItems(context)),
             _buildFooter(context),
           ],
@@ -41,7 +39,7 @@ class ModernSidebar extends StatelessWidget {
 
   Widget _buildHeader() {
     return Container(
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.all(AppSpacing.lg),
       child: Column(
         children: [
           Container(
@@ -49,54 +47,44 @@ class ModernSidebar extends StatelessWidget {
             height: 72,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              gradient: const LinearGradient(
-                colors: [Color(0xFF1E40AF), Color(0xFF1E3A8A)],
+              gradient: LinearGradient(
+                colors: [AppColors.primary, AppColors.primaryDark],
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
               ),
-              boxShadow: [
-                BoxShadow(
-                  color: const Color(0xFF1E40AF).withValues(alpha: 0.25),
-                  blurRadius: 12,
-                  offset: const Offset(0, 4),
-                ),
-              ],
+              boxShadow: AppElevation.shadowMd,
             ),
             child: Center(
               child: Text(
                 tourist.name.isNotEmpty ? tourist.name[0].toUpperCase() : '?',
-                style: const TextStyle(
-                  fontSize: 28,
-                  fontWeight: FontWeight.w700,
-                  color: Colors.white,
+                style: AppTypography.displayMedium.copyWith(
+                  color: AppColors.textOnPrimary,
                 ),
               ),
             ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: AppSpacing.sm),
           Text(
             tourist.name,
-            style: const TextStyle(
-              fontSize: 17,
-              fontWeight: FontWeight.w600,
-              color: Color(0xFF0F172A),
-            ),
+            style: AppTypography.headingSmall,
             textAlign: TextAlign.center,
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: AppSpacing.xxs),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.sm,
+              vertical: AppSpacing.xxs,
+            ),
             decoration: BoxDecoration(
-              color: const Color(0xFFF8FAFC),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: const Color(0xFFE2E8F0)),
+              color: AppColors.surfaceVariant,
+              borderRadius: BorderRadius.circular(AppRadius.md),
+              border: Border.all(color: AppColors.borderLight),
             ),
             child: Text(
               'ID: ${tourist.id}',
-              style: const TextStyle(
-                fontSize: 11,
-                color: Color(0xFF64748B),
+              style: AppTypography.caption.copyWith(
                 fontWeight: FontWeight.w600,
+                color: AppColors.textSecondary,
               ),
             ),
           ),
@@ -107,79 +95,135 @@ class ModernSidebar extends StatelessWidget {
 
   Widget _buildNavigationItems(BuildContext context) {
     return ListView(
-      padding: const EdgeInsets.symmetric(vertical: 8),
+      padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
       children: [
-        _buildItem(context, Icons.home_rounded, 'Home', HomeScreen(tourist: tourist)),
-        _buildItem(context, Icons.map_rounded, 'Map', MapScreen(tourist: tourist)),
-        _buildItem(context, Icons.campaign_rounded, 'Emergency Broadcasts', const BroadcastScreen()),
-        _buildItem(context, Icons.description_rounded, 'File E-FIR', EFIRFormScreen(tourist: tourist)),
-        _buildItem(context, Icons.history_edu_rounded, 'E-FIR History', EFIRHistoryScreen(tourist: tourist)),
-        _buildItem(context, Icons.location_history_rounded, 'Location History', const LocationHistoryScreen()),
-        _buildItem(context, Icons.contacts_rounded, 'Emergency Contacts', const EmergencyContactsScreen()),
-        _buildItem(context, Icons.person_rounded, 'Profile', ProfileScreen(tourist: tourist)),
-        _buildItem(context, Icons.settings_rounded, 'Settings', const SettingsScreen()),
+        _buildItem(
+          context,
+          Icons.notifications_rounded,
+          'Notifications',
+          NotificationScreen(
+            touristId: tourist.id,
+            initialAlerts: const [],
+          ),
+        ),
+        _buildItem(
+          context,
+          Icons.description_rounded,
+          'File E-FIR',
+          EFIRFormScreen(tourist: tourist),
+        ),
+        _buildItem(
+          context,
+          Icons.history_edu_rounded,
+          'E-FIR History',
+          EFIRHistoryScreen(tourist: tourist),
+        ),
+        _buildItem(
+          context,
+          Icons.location_history_rounded,
+          'Location History',
+          const LocationHistoryScreen(),
+        ),
+        _buildItem(
+          context,
+          Icons.contacts_rounded,
+          'Emergency Contacts',
+          const EmergencyContactsScreen(),
+        ),
+        _buildItem(
+          context,
+          Icons.settings_rounded,
+          'Settings',
+          const SettingsScreen(),
+        ),
       ],
     );
   }
 
-  Widget _buildItem(BuildContext context, IconData icon, String title, Widget screen) {
+  Widget _buildItem(
+    BuildContext context,
+    IconData icon,
+    String title,
+    Widget screen,
+  ) {
     return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+      contentPadding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.md,
+        vertical: AppSpacing.xxs,
+      ),
       leading: Container(
-        width: 36,
-        height: 36,
+        width: 40,
+        height: 40,
         decoration: BoxDecoration(
-          color: const Color(0xFFF8FAFC),
-          borderRadius: BorderRadius.circular(10),
+          color: AppColors.surfaceVariant,
+          borderRadius: BorderRadius.circular(AppRadius.md),
         ),
-        child: Icon(icon, color: const Color(0xFF64748B), size: 20),
+        child: Icon(
+          icon,
+          color: AppColors.textSecondary,
+          size: 20,
+        ),
       ),
       title: Text(
         title,
-        style: const TextStyle(
-          fontSize: 14,
+        style: AppTypography.bodyMedium.copyWith(
           fontWeight: FontWeight.w500,
-          color: Color(0xFF0F172A),
+          color: AppColors.textPrimary,
         ),
       ),
-      trailing: const Icon(Icons.chevron_right_rounded, color: Color(0xFFCBD5E1), size: 20),
-      onTap: () {
-        Navigator.of(context).pop();
-        onNavigate(screen);
-      },
+      trailing: Icon(
+        Icons.chevron_right_rounded,
+        color: AppColors.textTertiary,
+        size: 20,
+      ),
+      onTap: () => onNavigate(screen),
     );
   }
 
   Widget _buildFooter(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(AppSpacing.md),
       decoration: const BoxDecoration(
-        border: Border(top: BorderSide(color: Color(0xFFE2E8F0))),
+        border: Border(top: BorderSide(color: AppColors.divider)),
       ),
       child: Column(
         children: [
           InkWell(
             onTap: () => _showLogoutDialog(context),
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(AppRadius.button),
             child: Container(
               width: double.infinity,
-              padding: const EdgeInsets.symmetric(vertical: 12),
+              padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: const Color(0xFFDC2626), width: 1.5),
+                borderRadius: BorderRadius.circular(AppRadius.button),
+                border: Border.all(color: AppColors.error, width: 1.5),
               ),
-              child: const Row(
+              child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(Icons.logout_rounded, color: Color(0xFFDC2626), size: 18),
-                  SizedBox(width: 8),
-                  Text('Logout', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFFDC2626))),
+                  Icon(
+                    Icons.logout_rounded,
+                    color: AppColors.error,
+                    size: 18,
+                  ),
+                  const SizedBox(width: AppSpacing.xs),
+                  Text(
+                    'Logout',
+                    style: AppTypography.labelMedium.copyWith(
+                      color: AppColors.error,
+                    ),
+                  ),
                 ],
               ),
             ),
           ),
-          const SizedBox(height: 12),
-          const Text('SafeHorizon v1.0.0', style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8))),
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            'SafeHorizon v1.0.0',
+            style: AppTypography.caption.copyWith(
+              color: AppColors.textTertiary,
+            ),
+          ),
         ],
       ),
     );
@@ -189,14 +233,23 @@ class ModernSidebar extends StatelessWidget {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        backgroundColor: Colors.white,
-        title: const Text('Logout', style: TextStyle(fontWeight: FontWeight.w600, color: Color(0xFF0F172A))),
-        content: const Text('Are you sure you want to logout?', style: TextStyle(color: Color(0xFF64748B))),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadius.dialog),
+        ),
+        backgroundColor: AppColors.surface,
+        title: Text(
+          'Logout',
+          style: AppTypography.headingMedium,
+        ),
+        content: Text(
+          'Are you sure you want to logout?',
+          style: AppTypography.bodyMedium,
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel', style: TextStyle(color: Color(0xFF64748B))),
+            style: textButtonStyle,
+            child: const Text('Cancel'),
           ),
           ElevatedButton(
             onPressed: () async {
@@ -210,10 +263,7 @@ class ModernSidebar extends StatelessWidget {
                 );
               }
             },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFDC2626),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-            ),
+            style: dangerButtonStyle,
             child: const Text('Logout'),
           ),
         ],

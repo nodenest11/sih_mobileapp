@@ -12,6 +12,7 @@ import 'screens/onboarding_screen.dart';
 import 'services/api_service.dart';
 import 'services/fcm_notification_service.dart';
 import 'utils/logger.dart';
+import 'theme/app_theme.dart';
 
 // Background message handler (must be top-level function)
 @pragma('vm:entry-point')
@@ -72,8 +73,6 @@ void main() async {
   
   // Initialize logging and verify configuration
   AppLogger.info('🚀 SafeHorizon Tourist App starting up...');
-  AppLogger.api('🌐 API Base URL: ${dotenv.env['API_BASE_URL']}');
-  AppLogger.service('🔧 Debug mode: ${dotenv.env['DEBUG_MODE']}');
   
   // Initialize Firebase
   try {
@@ -84,19 +83,14 @@ void main() async {
     
     // Set up background message handler
     FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
-    AppLogger.service('✅ Firebase background message handler registered');
     
     // Initialize FCM early (before login) so token can be obtained immediately
-    AppLogger.service('🔄 Starting early FCM initialization...');
     try {
       final fcmService = FCMNotificationService();
-      AppLogger.service('FCM service instance created, calling initialize()...');
       await fcmService.initialize();
-      AppLogger.service('✅ FCM service initialized at app startup');
-    } catch (fcmError, stackTrace) {
-      AppLogger.service('⚠️ FCM early initialization failed: $fcmError', isError: true);
-      AppLogger.service('Stack trace: $stackTrace', isError: true);
-      AppLogger.service('FCM will retry after login');
+      AppLogger.service('✅ FCM initialized at app startup');
+    } catch (fcmError) {
+      AppLogger.service('⚠️ FCM early initialization failed, will retry after login', isError: true);
     }
   } catch (e) {
     AppLogger.service('❌ Firebase initialization failed: $e', isError: true);
@@ -114,19 +108,14 @@ Future<void> _initializeApp() async {
     DeviceOrientation.portraitDown,
   ]);
   
-  AppLogger.info('App orientation set to portrait only');
-  
   // Store API base URL in shared preferences for background service access
   final prefs = await SharedPreferences.getInstance();
   final apiBaseUrl = dotenv.env['API_BASE_URL']!;
   await prefs.setString('api_base_url', apiBaseUrl);
-  AppLogger.info('API base URL stored in shared preferences: $apiBaseUrl');
   
   // Initialize API service and find working server
   final apiService = ApiService();
   await apiService.initializeAuth();
-  
-  AppLogger.info('API service initialized');
   
   // Don't initialize background service on app start to avoid crashes
   // It will be initialized when user logs in and starts tracking
@@ -140,83 +129,7 @@ class TouristSafetyApp extends StatelessWidget {
     return MaterialApp(
       title: 'SafeHorizon',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF1E40AF),
-          primary: const Color(0xFF1E40AF),
-          secondary: const Color(0xFF0F172A),
-          brightness: Brightness.light,
-          surface: Colors.white,
-        ),
-        useMaterial3: true,
-        fontFamily: 'Inter',
-        scaffoldBackgroundColor: const Color(0xFFF8FAFC),
-        appBarTheme: const AppBarTheme(
-          centerTitle: false,
-          elevation: 0,
-          scrolledUnderElevation: 1,
-          backgroundColor: Colors.white,
-          foregroundColor: Color(0xFF0F172A),
-          shadowColor: Colors.black12,
-          titleTextStyle: TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.w600,
-            color: Color(0xFF0F172A),
-            letterSpacing: -0.5,
-          ),
-        ),
-        cardTheme: CardThemeData(
-          color: Colors.white,
-          elevation: 0,
-          shadowColor: Colors.transparent,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-            side: BorderSide(color: Colors.grey.shade200),
-          ),
-        ),
-        inputDecorationTheme: InputDecorationTheme(
-          filled: true,
-          fillColor: Colors.white,
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(8),
-            borderSide: BorderSide(color: Colors.grey.shade300),
-          ),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(8),
-            borderSide: BorderSide(color: Colors.grey.shade300),
-          ),
-          focusedBorder: const OutlineInputBorder(
-            borderRadius: BorderRadius.all(Radius.circular(8)),
-            borderSide: BorderSide(color: Color(0xFF1E40AF), width: 2),
-          ),
-          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        ),
-        elevatedButtonTheme: ElevatedButtonThemeData(
-          style: ElevatedButton.styleFrom(
-            backgroundColor: const Color(0xFF1E40AF),
-            foregroundColor: Colors.white,
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(8),
-            ),
-            elevation: 0,
-            textStyle: const TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-              letterSpacing: 0.3,
-            ),
-          ),
-        ),
-        textButtonTheme: TextButtonThemeData(
-          style: TextButton.styleFrom(
-            foregroundColor: const Color(0xFF1E40AF),
-            textStyle: const TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ),
-      ),
+      theme: appTheme, // Use the new comprehensive theme
       home: const AppInitializer(),
     );
   }

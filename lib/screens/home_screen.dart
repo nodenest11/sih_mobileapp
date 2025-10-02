@@ -14,8 +14,6 @@ import 'panic_countdown_screen.dart';
 import 'notification_screen.dart';
 import '../widgets/safety_score_widget.dart';
 import '../widgets/geofence_alert.dart';
-import 'map_screen.dart';
-import 'profile_screen.dart';
 import 'location_history_screen.dart';
 import 'emergency_contacts_screen.dart';
 import 'efir_form_screen.dart';
@@ -34,8 +32,7 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
-  int _currentIndex = 0;
+class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMixin {
   final ApiService _apiService = ApiService();
   final LocationService _locationService = LocationService();
   final PanicService _panicService = PanicService();
@@ -59,8 +56,6 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    AppLogger.service('🏠 HomeScreen initializing for tourist: ${widget.tourist.id}');
-    AppLogger.service('🔧 DEBUG_MODE enabled: ${const bool.fromEnvironment('dart.vm.product') == false}');
     _initializeApp();
   }
 
@@ -84,6 +79,9 @@ class _HomeScreenState extends State<HomeScreen> {
     super.dispose();
   }
 
+  @override
+  bool get wantKeepAlive => true; // Keep screen alive when switching tabs
+
   Future<void> _getCurrentLocation() async {
     setState(() {
       _isLoadingLocation = true;
@@ -104,7 +102,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _initializeServices() async {
     // Initialize API service and load auth token first
-    AppLogger.service('🔧 Initializing API service and loading auth token...');
     await _apiService.initializeAuth();
     
     // Start location tracking
@@ -437,12 +434,6 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  void _onTabTapped(int index) {
-    setState(() {
-      _currentIndex = index;
-    });
-  }
-
   // _onPanicSent removed; feedback handled inside countdown/result screens.
 
   Future<void> _handleSOSPress() async {
@@ -500,38 +491,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final List<Widget> screens = [
-      _buildHomeTab(),
-      MapScreen(tourist: widget.tourist),
-      ProfileScreen(tourist: widget.tourist),
-    ];
-
+    super.build(context); // Must call super when using AutomaticKeepAliveClientMixin
     return Scaffold(
-      body: IndexedStack(
-        index: _currentIndex,
-        children: screens,
-      ),
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _currentIndex,
-        onTap: _onTabTapped,
-        type: BottomNavigationBarType.fixed,
-        selectedItemColor: Colors.blue,
-        unselectedItemColor: Colors.grey,
-        items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.home),
-            label: 'Home',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.map),
-            label: 'Map',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.person),
-            label: 'Profile',
-          ),
-        ],
-      ),
+      body: _buildHomeTab(),
     );
   }
 
@@ -808,7 +770,15 @@ class _HomeScreenState extends State<HomeScreen> {
               _buildSimpleActionButton(
                 icon: Icons.map_rounded,
                 label: 'Map',
-                onTap: () => _onTabTapped(1),
+                onTap: () {
+                  // Navigation is handled by ModernAppWrapper bottom nav
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Use bottom navigation to access Map'),
+                      duration: Duration(seconds: 1),
+                    ),
+                  );
+                },
               ),
               _buildSimpleActionButton(
                 icon: Icons.description_rounded,
@@ -834,9 +804,12 @@ class _HomeScreenState extends State<HomeScreen> {
                 icon: Icons.person_rounded,
                 label: 'Profile',
                 onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (context) => ProfileScreen(tourist: widget.tourist)),
+                  // Navigation is handled by ModernAppWrapper bottom nav
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Use bottom navigation to access Profile'),
+                      duration: Duration(seconds: 1),
+                    ),
                   );
                 },
               ),

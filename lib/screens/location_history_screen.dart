@@ -93,7 +93,6 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen>
     }
   }
 
-  // ignore: unused_element
   List<Marker> _buildMapMarkers() {
     if (_locations.isEmpty) return [];
     
@@ -128,7 +127,6 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen>
     return markers;
   }
 
-  // ignore: unused_element
   List<Polyline> _buildMapPolylines() {
     if (_locations.length < 2) return [];
     
@@ -180,7 +178,6 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen>
     );
   }
 
-  // ignore: unused_element
   String _formatDateTime(DateTime dateTime) {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);

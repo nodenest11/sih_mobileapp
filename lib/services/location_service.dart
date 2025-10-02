@@ -10,7 +10,7 @@ import 'background_location_service.dart';
 import '../utils/logger.dart';
 
 class LocationService {
-  static const int _locationUpdateInterval = 10; // seconds
+  static const int _locationUpdateInterval = 60; // seconds (1 minute)
   
   final ApiService _apiService = ApiService();
   StreamSubscription<Position>? _positionSubscription;
@@ -30,7 +30,8 @@ class LocationService {
   // Helper method to safely add status updates
   void _addStatus(String status) {
     if (!_statusController.isClosed) {
-      _addStatus(status);
+      _statusController.add(status);
+      AppLogger.service('Location Status: $status');
     }
   }
 
@@ -189,7 +190,7 @@ class LocationService {
         },
       );
 
-      // Set up periodic updates to backend (every 10 seconds)
+      // Set up periodic updates to backend (every 60 seconds / 1 minute)
       _updateTimer = Timer.periodic(
         const Duration(seconds: _locationUpdateInterval),
         (timer) {

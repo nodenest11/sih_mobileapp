@@ -64,34 +64,26 @@ class FCMNotificationService {
         await _initializeLocalNotifications();
 
         // Get FCM token with timeout and retry logic
-        AppLogger.service('Requesting FCM token from Firebase...');
         _fcmToken = await _firebaseMessaging.getToken().timeout(
           const Duration(seconds: 30),
           onTimeout: () {
-            AppLogger.service('⚠️ FCM token request timed out after 30 seconds', isError: true);
+            AppLogger.service('⚠️ FCM token request timed out', isError: true);
             return null;
           },
         );
         
         if (_fcmToken != null) {
-          AppLogger.service('✅ FCM Token obtained successfully!');
-          AppLogger.service('Token length: ${_fcmToken!.length} characters');
-          AppLogger.service('Token preview: ${_fcmToken!.substring(0, 20)}...');
+          AppLogger.service('✅ FCM Token obtained successfully');
           await _saveFCMToken(_fcmToken!);
           
           // Register device with backend
           await _registerDevice();
         } else {
-          AppLogger.service('❌ Failed to get FCM token - this could be due to:', isError: true);
-          AppLogger.service('  1. Emulator without Google Play Services', isError: true);
-          AppLogger.service('  2. Network connectivity issues', isError: true);
-          AppLogger.service('  3. Firebase project configuration issues', isError: true);
-          AppLogger.service('  4. google-services.json mismatch', isError: true);
+          AppLogger.service('❌ Failed to get FCM token - check Firebase configuration', isError: true);
         }
 
         // Listen for token refresh
         _firebaseMessaging.onTokenRefresh.listen((newToken) {
-          AppLogger.service('FCM token refreshed');
           _fcmToken = newToken;
           _saveFCMToken(newToken);
           _registerDevice();
@@ -289,11 +281,6 @@ class FCMNotificationService {
 
   /// Handle foreground messages (when app is open)
   void _handleForegroundMessage(RemoteMessage message) {
-    AppLogger.service('📩 Foreground message received');
-    AppLogger.service('Title: ${message.notification?.title}');
-    AppLogger.service('Body: ${message.notification?.body}');
-    AppLogger.service('Data: ${message.data}');
-
     // Show local notification
     _showLocalNotification(message);
   }

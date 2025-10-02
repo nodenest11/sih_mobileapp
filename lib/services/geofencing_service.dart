@@ -320,5 +320,8 @@ class GeofencingService {
     stopMonitoring();
     _eventController?.close();
     _eventController = null;
+    _restrictedZones.clear();
+    _currentZones.clear();
+    AppLogger.info('GeofencingService disposed');
   }
 }

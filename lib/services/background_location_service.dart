@@ -12,10 +12,10 @@ class BackgroundLocationService {
   static const String _notificationChannelId = 'location_tracking_channel';
   static const int _notificationId = 1;
   
-  // Battery-optimized location settings
+  // Location settings optimized for 1-minute updates
   static const LocationSettings _locationSettings = LocationSettings(
-    accuracy: LocationAccuracy.medium,
-    distanceFilter: 15, // Update only if moved 15+ meters
+    accuracy: LocationAccuracy.high, // Higher accuracy for safety
+    distanceFilter: 10, // Update if moved 10+ meters
   );
 
   /// Initialize the background service with optimized settings
@@ -30,12 +30,13 @@ class BackgroundLocationService {
       await service.configure(
         androidConfiguration: AndroidConfiguration(
           onStart: onStart,
-          autoStart: false,
-          isForegroundMode: true,
+          autoStart: true, // Auto-start for high priority
+          isForegroundMode: true, // Run as foreground service (high priority)
           notificationChannelId: _notificationChannelId,
-          initialNotificationTitle: 'Tourist Safety App',
-          initialNotificationContent: 'Location tracking is active',
+          initialNotificationTitle: '🛡️ SafeHorizon - Protection Active',
+          initialNotificationContent: 'Your location is being shared every minute for your safety',
           foregroundServiceNotificationId: _notificationId,
+          autoStartOnBoot: true, // Restart after device reboot
         ),
         iosConfiguration: IosConfiguration(
           autoStart: false,
@@ -60,10 +61,19 @@ class BackgroundLocationService {
   static void onStart(ServiceInstance service) async {
     DartPluginRegistrant.ensureInitialized();
 
-    // Increased interval to 45 seconds for better battery performance
-    Timer? serviceTimer = Timer.periodic(const Duration(seconds: 45), (timer) async {
+    // Update location every 60 seconds (1 minute)
+    Timer? serviceTimer = Timer.periodic(const Duration(seconds: 60), (timer) async {
       if (service is AndroidServiceInstance) {
         if (await service.isForegroundService()) {
+          // Update notification with current time
+          final now = DateTime.now();
+          final timeStr = '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
+          
+          service.setForegroundNotificationInfo(
+            title: '🛡️ SafeHorizon - Protection Active',
+            content: 'Location shared at $timeStr • Keeping you safe',
+          );
+          
           await _trackLocation(service);
         }
       } else {
@@ -105,49 +115,19 @@ class BackgroundLocationService {
       final touristId = prefs.getString('tourist_id');
       
       if (touristId != null) {
-        // Smart location filtering - only send if significant change
-        if (await _shouldUpdateLocation(position, prefs)) {
-          await _sendLocationUpdate(touristId, position);
-          
-          // Store last position and update time
-          await prefs.setDouble('last_lat', position.latitude);
-          await prefs.setDouble('last_lng', position.longitude);
-          await prefs.setInt('last_update', DateTime.now().millisecondsSinceEpoch);
-          
-        }
+        // Always send location every minute (no filtering)
+        await _sendLocationUpdate(touristId, position);
+        
+        // Store last position and update time
+        await prefs.setDouble('last_lat', position.latitude);
+        await prefs.setDouble('last_lng', position.longitude);
+        await prefs.setInt('last_update', DateTime.now().millisecondsSinceEpoch);
       } else {
         // Tourist ID not found
       }
     } catch (e) {
       // Location tracking error occurred
     }
-  }
-
-  /// Smart location filtering to reduce battery usage and network calls
-  static Future<bool> _shouldUpdateLocation(Position position, SharedPreferences prefs) async {
-    final lastLat = prefs.getDouble('last_lat');
-    final lastLng = prefs.getDouble('last_lng');
-    final lastUpdate = prefs.getInt('last_update');
-    
-    // Always update on first run
-    if (lastLat == null || lastLng == null || lastUpdate == null) {
-      return true;
-    }
-    
-    // Force update every 5 minutes regardless of distance
-    final timeSinceLastUpdate = DateTime.now().millisecondsSinceEpoch - lastUpdate;
-    if (timeSinceLastUpdate > 5 * 60 * 1000) {
-      return true;
-    }
-    
-    // Calculate distance moved and only update if significant
-    final distance = Geolocator.distanceBetween(
-      lastLat, lastLng,
-      position.latitude, position.longitude,
-    );
-    
-    // Update if moved more than 25 meters (optimized for battery)
-    return distance > 25.0;
   }
 
   /// Send location update to backend with error handling

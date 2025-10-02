@@ -1,11 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart';
 
 import '../services/api_service.dart';
 import '../services/fcm_notification_service.dart';
 import '../models/tourist.dart';
 import '../widgets/modern_app_wrapper.dart';
-import '../widgets/fcm_token_display.dart';
 import '../utils/logger.dart';
 import '../theme/app_theme.dart';
 
@@ -83,9 +81,6 @@ class _LoginScreenState extends State<LoginScreen> {
       );
 
       if (response['success'] == true) {
-        // Log successful authentication
-        AppLogger.auth('User login successful - token received');
-        
         // Initialize FCM notification service
         try {
           final fcmService = FCMNotificationService();
@@ -93,10 +88,7 @@ class _LoginScreenState extends State<LoginScreen> {
           
           // Verify device registration
           final isRegistered = await fcmService.verifyRegistration();
-          if (isRegistered) {
-            AppLogger.service('✅ Device registration verified');
-          } else {
-            AppLogger.service('⚠️ Device registration could not be verified', isError: true);
+          if (!isRegistered) {
             // Show user a warning
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
@@ -108,8 +100,6 @@ class _LoginScreenState extends State<LoginScreen> {
               );
             }
           }
-          
-          AppLogger.service('✅ FCM initialized after login');
         } catch (e) {
           AppLogger.service('Failed to initialize FCM: $e', isError: true);
           // Don't block login if FCM fails
@@ -269,7 +259,7 @@ class _LoginScreenState extends State<LoginScreen> {
       backgroundColor: const Color(0xFFF8FAFC),
       body: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(AppSpacing.l),
+          padding: const EdgeInsets.all(AppSpacing.lg),
           child: Form(
             key: _formKey,
             child: Column(
@@ -303,7 +293,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                 ),
                 
-                const SizedBox(height: AppSpacing.l),
+                const SizedBox(height: AppSpacing.lg),
                 
                 const Text(
                   'SafeHorizon',
@@ -341,7 +331,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     validator: _validateName,
                     textInputAction: TextInputAction.next,
                   ),
-                  const SizedBox(height: AppSpacing.m),
+                  const SizedBox(height: AppSpacing.md),
                 ],
                 
                 // Email field
@@ -355,7 +345,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   validator: _validateEmail,
                   textInputAction: TextInputAction.next,
                 ),
-                const SizedBox(height: AppSpacing.m),
+                const SizedBox(height: AppSpacing.md),
                 
                 // Password field
                 TextFormField(
@@ -368,7 +358,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   validator: _validatePassword,
                   textInputAction: TextInputAction.next,
                 ),
-                const SizedBox(height: AppSpacing.m),
+                const SizedBox(height: AppSpacing.md),
                 
                 // Additional fields for registration
                 if (!_isLoginMode) ...[
@@ -381,7 +371,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     keyboardType: TextInputType.phone,
                     textInputAction: TextInputAction.next,
                   ),
-                  const SizedBox(height: AppSpacing.m),
+                  const SizedBox(height: AppSpacing.md),
                   TextFormField(
                     controller: _emergencyContactController,
                     decoration: const InputDecoration(
@@ -390,7 +380,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                     textInputAction: TextInputAction.next,
                   ),
-                  const SizedBox(height: AppSpacing.m),
+                  const SizedBox(height: AppSpacing.md),
                   TextFormField(
                     controller: _emergencyPhoneController,
                     decoration: const InputDecoration(
@@ -400,10 +390,10 @@ class _LoginScreenState extends State<LoginScreen> {
                     keyboardType: TextInputType.phone,
                     textInputAction: TextInputAction.done,
                   ),
-                  const SizedBox(height: AppSpacing.m),
+                  const SizedBox(height: AppSpacing.md),
                 ],
                 
-                const SizedBox(height: AppSpacing.l),
+                const SizedBox(height: AppSpacing.lg),
                 
                 // Login/Register button
                 SizedBox(
@@ -424,7 +414,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                 ),
                 
-                const SizedBox(height: AppSpacing.m),
+                const SizedBox(height: AppSpacing.md),
                 
                 // Switch mode button
                 Row(
@@ -448,22 +438,6 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                   ],
                 ),
-                
-                // Debug: Show FCM Token button (only in debug mode)
-                if (kDebugMode) ...[
-                  const SizedBox(height: AppSpacing.l),
-                  OutlinedButton.icon(
-                    onPressed: () {
-                      FCMTokenDialog.show(context);
-                    },
-                    icon: const Icon(Icons.bug_report, size: 18),
-                    label: const Text('Show FCM Token (Debug)'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.orange,
-                      side: const BorderSide(color: Colors.orange),
-                    ),
-                  ),
-                ],
               ],
             ),
           ),

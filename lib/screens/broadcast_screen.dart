@@ -12,7 +12,7 @@ class BroadcastScreen extends StatefulWidget {
   State<BroadcastScreen> createState() => _BroadcastScreenState();
 }
 
-class _BroadcastScreenState extends State<BroadcastScreen> with SingleTickerProviderStateMixin {
+class _BroadcastScreenState extends State<BroadcastScreen> with SingleTickerProviderStateMixin, AutomaticKeepAliveClientMixin {
   final ApiService _apiService = ApiService();
   late TabController _tabController;
   
@@ -125,7 +125,11 @@ class _BroadcastScreenState extends State<BroadcastScreen> with SingleTickerProv
   }
 
   @override
+  bool get wantKeepAlive => true; // Keep screen alive when switching tabs
+
+  @override
   Widget build(BuildContext context) {
+    super.build(context); // Must call super when using AutomaticKeepAliveClientMixin
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
       appBar: AppBar(

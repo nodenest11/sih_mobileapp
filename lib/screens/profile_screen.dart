@@ -16,7 +16,7 @@ class ProfileScreen extends StatefulWidget {
   State<ProfileScreen> createState() => _ProfileScreenState();
 }
 
-class _ProfileScreenState extends State<ProfileScreen> {
+class _ProfileScreenState extends State<ProfileScreen> with AutomaticKeepAliveClientMixin {
   final LocationService _locationService = LocationService();
   Map<String, dynamic> _locationSettings = {};
   bool _isLoadingLocationSettings = true;
@@ -99,7 +99,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   @override
+  bool get wantKeepAlive => true; // Keep screen alive when switching tabs
+
+  @override
   Widget build(BuildContext context) {
+    super.build(context); // Must call super when using AutomaticKeepAliveClientMixin
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
       appBar: AppBar(
