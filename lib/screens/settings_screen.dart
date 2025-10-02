@@ -74,7 +74,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 );
               }
             },
-            style: ElevatedButton.styleFrom(backgroundColor: AppColors.redPrimary),
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
             child: const Text('Logout', style: TextStyle(color: Colors.white)),
           ),
         ],
@@ -87,14 +87,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
       padding: const EdgeInsets.fromLTRB(16, 24, 16, 8),
       child: Row(
         children: [
-          Icon(icon, color: AppColors.redPrimary, size: 20),
+          Icon(icon, color: AppColors.primary, size: 20),
           const SizedBox(width: 8),
           Text(
             title,
             style: TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.bold,
-              color: AppColors.redPrimary,
+              color: AppColors.primary,
             ),
           ),
         ],
@@ -116,8 +116,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         subtitle: Text(subtitle),
         value: value,
         onChanged: onChanged,
-        activeColor: AppColors.redPrimary,
-        secondary: icon != null ? Icon(icon, color: AppColors.greyText) : null,
+        activeColor: AppColors.primary,
+        secondary: icon != null ? Icon(icon, color: AppColors.textSecondary) : null,
       ),
     );
   }
@@ -134,7 +134,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       child: ListTile(
         title: Text(title),
         subtitle: Text(subtitle),
-        leading: icon != null ? Icon(icon, color: AppColors.greyText) : null,
+        leading: icon != null ? Icon(icon, color: AppColors.textSecondary) : null,
         trailing: trailing ?? const Icon(Icons.chevron_right),
         onTap: onTap,
       ),
@@ -169,8 +169,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Settings'),
-        backgroundColor: AppColors.redPrimary,
-        foregroundColor: Colors.white,
+        backgroundColor: Colors.white,
+        foregroundColor: const Color(0xFF0F172A),
+        elevation: 0,
       ),
       body: ListView(
         children: [
@@ -361,7 +362,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 Text(
                   'SafeHorizon Tourist Safety Platform',
                   style: TextStyle(
-                    color: AppColors.greyText,
+                    color: AppColors.textSecondary,
                     fontSize: 14,
                     fontWeight: FontWeight.w500,
                   ),
@@ -370,7 +371,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 Text(
                   'Version 1.0.0',
                   style: TextStyle(
-                    color: AppColors.greyText,
+                    color: AppColors.textSecondary,
                     fontSize: 12,
                   ),
                 ),

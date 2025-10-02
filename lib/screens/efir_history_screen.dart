@@ -86,8 +86,9 @@ class _EFIRHistoryScreenState extends State<EFIRHistoryScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('E-FIR History'),
-        backgroundColor: Colors.red.shade700,
-        foregroundColor: Colors.white,
+        backgroundColor: Colors.white,
+        foregroundColor: const Color(0xFF0F172A),
+        elevation: 0,
       ),
       body: _isLoading
           ? const Center(

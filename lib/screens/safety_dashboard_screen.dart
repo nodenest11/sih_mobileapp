@@ -193,7 +193,7 @@ class _SafetyDashboardScreenState extends State<SafetyDashboardScreen> {
                 Text(
                   'Last updated: ${_formatLastUpdated(_lastUpdated)}',
                   style: TextStyle(
-                    color: AppColors.greyText,
+                    color: AppColors.textSecondary,
                     fontSize: 12,
                   ),
                 ),
@@ -216,7 +216,7 @@ class _SafetyDashboardScreenState extends State<SafetyDashboardScreen> {
           children: [
             Row(
               children: [
-                Icon(Icons.lightbulb_outline, color: AppColors.redPrimary),
+                Icon(Icons.lightbulb_outline, color: AppColors.primary),
                 const SizedBox(width: 8),
                 const Text(
                   'Safety Recommendations',
@@ -235,7 +235,7 @@ class _SafetyDashboardScreenState extends State<SafetyDashboardScreen> {
                 children: [
                   Icon(
                     Icons.check_circle_outline,
-                    color: AppColors.redPrimary,
+                    color: AppColors.primary,
                     size: 16,
                   ),
                   const SizedBox(width: 8),
@@ -263,7 +263,7 @@ class _SafetyDashboardScreenState extends State<SafetyDashboardScreen> {
           children: [
             Row(
               children: [
-                Icon(Icons.map, color: AppColors.redPrimary),
+                Icon(Icons.map, color: AppColors.primary),
                 const SizedBox(width: 8),
                 const Text(
                   'Safety Zones',
@@ -343,21 +343,21 @@ class _SafetyDashboardScreenState extends State<SafetyDashboardScreen> {
           padding: const EdgeInsets.all(16),
           child: Column(
             children: [
-              Icon(Icons.info_outline, color: AppColors.greyText, size: 48),
+              Icon(Icons.info_outline, color: AppColors.textSecondary, size: 48),
               const SizedBox(height: 8),
               Text(
                 'No Safety Zones Found',
                 style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.bold,
-                  color: AppColors.greyText,
+                  color: AppColors.textSecondary,
                 ),
               ),
               const SizedBox(height: 4),
               Text(
                 'Safety zone information will appear here when available',
                 style: TextStyle(
-                  color: AppColors.greyText,
+                  color: AppColors.textSecondary,
                   fontSize: 14,
                 ),
                 textAlign: TextAlign.center,
@@ -376,7 +376,7 @@ class _SafetyDashboardScreenState extends State<SafetyDashboardScreen> {
           children: [
             Row(
               children: [
-                Icon(Icons.list, color: AppColors.redPrimary),
+                Icon(Icons.list, color: AppColors.primary),
                 const SizedBox(width: 8),
                 const Text(
                   'Nearby Zones',
@@ -420,7 +420,7 @@ class _SafetyDashboardScreenState extends State<SafetyDashboardScreen> {
                         Text(
                           zone.description,
                           style: TextStyle(
-                            color: AppColors.greyText,
+                            color: AppColors.textSecondary,
                             fontSize: 12,
                           ),
                         ),
@@ -523,14 +523,9 @@ class _SafetyDashboardScreenState extends State<SafetyDashboardScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Safety Dashboard'),
-        backgroundColor: AppColors.redPrimary,
-        foregroundColor: Colors.white,
-        actions: [
-          IconButton(
-            onPressed: _loadSafetyData,
-            icon: const Icon(Icons.refresh),
-          ),
-        ],
+        backgroundColor: Colors.white,
+        foregroundColor: const Color(0xFF0F172A),
+        elevation: 0,
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())

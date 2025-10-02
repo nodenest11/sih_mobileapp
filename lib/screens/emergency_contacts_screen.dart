@@ -169,88 +169,138 @@ class _EmergencyContactsScreenState extends State<EmergencyContactsScreen> {
   }
 
   Widget _buildContactCard(EmergencyContact contact) {
-    return Card(
-      child: ListTile(
-        leading: CircleAvatar(
-          backgroundColor: AppColors.redPrimary,
-          child: Text(
-            contact.name[0].toUpperCase(),
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.bold,
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.03),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [Color(0xFF1E40AF), Color(0xFF1E3A8A)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(24),
+            ),
+            child: Center(
+              child: Text(
+                contact.name[0].toUpperCase(),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 20,
+                ),
+              ),
             ),
           ),
-        ),
-        title: Text(
-          contact.name,
-          style: const TextStyle(
-            fontWeight: FontWeight.w600,
-            fontSize: 16,
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  contact.name,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 15,
+                    color: Color(0xFF0F172A),
+                    letterSpacing: -0.2,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  contact.phoneNumber,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: Color(0xFF64748B),
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF8FAFC),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                  ),
+                  child: Text(
+                    contact.relationship,
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: Color(0xFF94A3B8),
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0.3,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
-        ),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              contact.phoneNumber,
-              style: const TextStyle(fontSize: 14),
-            ),
-            Text(
-              contact.relationship,
-              style: TextStyle(
-                fontSize: 12,
-                color: AppColors.greyText,
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert_rounded, color: Color(0xFF94A3B8)),
+            onSelected: (value) {
+              switch (value) {
+                case 'call':
+                  // Launch phone dialer
+                  break;
+                case 'edit':
+                  _showAddEditContactDialog(contact);
+                  break;
+                case 'delete':
+                  _showDeleteConfirmDialog(contact);
+                  break;
+              }
+            },
+            itemBuilder: (context) => [
+              const PopupMenuItem(
+                value: 'call',
+                child: Row(
+                  children: [
+                    Icon(Icons.phone_rounded, size: 18),
+                    SizedBox(width: 8),
+                    Text('Call'),
+                  ],
+                ),
               ),
-            ),
-          ],
-        ),
-        trailing: PopupMenuButton<String>(
-          onSelected: (value) {
-            switch (value) {
-              case 'call':
-                // Launch phone dialer
-                break;
-              case 'edit':
-                _showAddEditContactDialog(contact);
-                break;
-              case 'delete':
-                _showDeleteConfirmDialog(contact);
-                break;
-            }
-          },
-          itemBuilder: (context) => [
-            const PopupMenuItem(
-              value: 'call',
-              child: Row(
-                children: [
-                  Icon(Icons.phone, size: 20),
-                  SizedBox(width: 8),
-                  Text('Call'),
-                ],
+              const PopupMenuItem(
+                value: 'edit',
+                child: Row(
+                  children: [
+                    Icon(Icons.edit_rounded, size: 18),
+                    SizedBox(width: 8),
+                    Text('Edit'),
+                  ],
+                ),
               ),
-            ),
-            const PopupMenuItem(
-              value: 'edit',
-              child: Row(
-                children: [
-                  Icon(Icons.edit, size: 20),
-                  SizedBox(width: 8),
-                  Text('Edit'),
-                ],
+              const PopupMenuItem(
+                value: 'delete',
+                child: Row(
+                  children: [
+                    Icon(Icons.delete_outline_rounded, size: 18, color: Color(0xFFDC2626)),
+                    SizedBox(width: 8),
+                    Text('Delete', style: TextStyle(color: Color(0xFFDC2626))),
+                  ],
+                ),
               ),
-            ),
-            const PopupMenuItem(
-              value: 'delete',
-              child: Row(
-                children: [
-                  Icon(Icons.delete, size: 20, color: Colors.red),
-                  SizedBox(width: 8),
-                  Text('Delete', style: TextStyle(color: Colors.red)),
-                ],
-              ),
-            ),
-          ],
-        ),
+            ],
+          ),
+        ],
       ),
     );
   }
@@ -260,37 +310,72 @@ class _EmergencyContactsScreenState extends State<EmergencyContactsScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(
-            Icons.contacts,
-            size: 80,
-            color: AppColors.greyText,
+          Container(
+            width: 80,
+            height: 80,
+            decoration: BoxDecoration(
+              color: const Color(0xFFF8FAFC),
+              borderRadius: BorderRadius.circular(40),
+            ),
+            child: const Icon(
+              Icons.contacts_rounded,
+              size: 40,
+              color: Color(0xFF94A3B8),
+            ),
           ),
           const SizedBox(height: 16),
-          Text(
+          const Text(
             'No Emergency Contacts',
             style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-              color: AppColors.greyText,
+              fontSize: 18,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF0F172A),
+              letterSpacing: -0.3,
             ),
           ),
           const SizedBox(height: 8),
-          Text(
+          const Text(
             'Add emergency contacts for quick access\nduring emergencies',
             style: TextStyle(
-              fontSize: 14,
-              color: AppColors.greyText,
+              fontSize: 13,
+              color: Color(0xFF94A3B8),
+              height: 1.4,
             ),
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 24),
-          ElevatedButton.icon(
-            onPressed: () => _showAddEditContactDialog(),
-            icon: const Icon(Icons.add),
-            label: const Text('Add Contact'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.redPrimary,
-              foregroundColor: Colors.white,
+          Container(
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [Color(0xFF1E40AF), Color(0xFF1E3A8A)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(8),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFF1E40AF).withOpacity(0.3),
+                  blurRadius: 12,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: ElevatedButton.icon(
+              onPressed: () => _showAddEditContactDialog(),
+              icon: const Icon(Icons.add_rounded),
+              label: const Text('Add Contact'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.transparent,
+                foregroundColor: Colors.white,
+                elevation: 0,
+                shadowColor: Colors.transparent,
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                textStyle: const TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.2,
+                ),
+              ),
             ),
           ),
         ],
@@ -301,10 +386,12 @@ class _EmergencyContactsScreenState extends State<EmergencyContactsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: const Color(0xFFF8FAFC),
       appBar: AppBar(
         title: const Text('Emergency Contacts'),
-        backgroundColor: AppColors.redPrimary,
-        foregroundColor: Colors.white,
+        backgroundColor: Colors.white,
+        foregroundColor: const Color(0xFF0F172A),
+        elevation: 0,
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
@@ -313,7 +400,7 @@ class _EmergencyContactsScreenState extends State<EmergencyContactsScreen> {
               : RefreshIndicator(
                   onRefresh: _loadContacts,
                   child: ListView.builder(
-                    padding: const EdgeInsets.all(16),
+                    padding: const EdgeInsets.all(20),
                     itemCount: _contacts.length,
                     itemBuilder: (context, index) {
                       return _buildContactCard(_contacts[index]);
@@ -321,10 +408,28 @@ class _EmergencyContactsScreenState extends State<EmergencyContactsScreen> {
                   ),
                 ),
       floatingActionButton: _contacts.isNotEmpty
-          ? FloatingActionButton(
-              onPressed: () => _showAddEditContactDialog(),
-              backgroundColor: AppColors.redPrimary,
-              child: const Icon(Icons.add, color: Colors.white),
+          ? Container(
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF1E40AF), Color(0xFF1E3A8A)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFF1E40AF).withOpacity(0.4),
+                    blurRadius: 12,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: FloatingActionButton(
+                onPressed: () => _showAddEditContactDialog(),
+                backgroundColor: Colors.transparent,
+                elevation: 0,
+                child: const Icon(Icons.add_rounded, color: Colors.white, size: 28),
+              ),
             )
           : null,
     );
@@ -463,7 +568,7 @@ class _AddEditContactDialogState extends State<AddEditContactDialog> {
             }
           },
           style: ElevatedButton.styleFrom(
-            backgroundColor: AppColors.redPrimary,
+            backgroundColor: AppColors.primary,
             foregroundColor: Colors.white,
           ),
           child: Text(widget.contact == null ? 'Add' : 'Update'),

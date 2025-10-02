@@ -112,7 +112,7 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen>
               color: isFirst 
                   ? Colors.green 
                   : isLast 
-                      ? AppColors.redPrimary 
+                      ? AppColors.primary 
                       : Colors.blue,
               shape: BoxShape.circle,
               border: Border.all(color: Colors.white, width: 2),
@@ -136,7 +136,7 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen>
       Polyline(
         points: points,
         strokeWidth: 3.0,
-        color: AppColors.redPrimary.withValues(alpha: 0.7),
+        color: AppColors.primary.withValues(alpha: 0.7),
       ),
     ];
   }
@@ -195,7 +195,7 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen>
               backgroundColor: isFirst 
                   ? Colors.green.shade100 
                   : isLast 
-                      ? AppColors.redLight 
+                      ? AppColors.primaryLight 
                       : Colors.blue.shade100,
               child: Icon(
                 isFirst 
@@ -206,7 +206,7 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen>
                 color: isFirst 
                     ? Colors.green 
                     : isLast 
-                        ? AppColors.redPrimary 
+                        ? AppColors.primary 
                         : Colors.blue,
                 size: 20,
               ),
@@ -223,7 +223,7 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen>
                   Text(
                     'Speed: ${location.speed!.toStringAsFixed(1)} km/h',
                     style: TextStyle(
-                      color: AppColors.greyText,
+                      color: AppColors.textSecondary,
                       fontSize: 12,
                     ),
                   ),
@@ -231,7 +231,7 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen>
                   Text(
                     'Accuracy: ±${location.accuracy!.toStringAsFixed(0)}m',
                     style: TextStyle(
-                      color: AppColors.greyText,
+                      color: AppColors.textSecondary,
                       fontSize: 12,
                     ),
                   ),
@@ -264,7 +264,7 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen>
             Icon(
               Icons.location_off,
               size: 80,
-              color: AppColors.greyText,
+              color: AppColors.textSecondary,
             ),
             const SizedBox(height: 16),
             const Text(
@@ -278,7 +278,7 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen>
             Text(
               message,
               style: TextStyle(
-                color: AppColors.greyText,
+                color: AppColors.textSecondary,
                 fontSize: 16,
               ),
               textAlign: TextAlign.center,
@@ -314,56 +314,50 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen>
     return Scaffold(
       appBar: AppBar(
         title: const Text('Location History'),
-        backgroundColor: AppColors.redPrimary,
-        foregroundColor: Colors.white,
+        backgroundColor: Colors.white,
+        foregroundColor: const Color(0xFF0F172A),
+        elevation: 0,
         actions: [
           PopupMenuButton<String>(
             icon: const Icon(Icons.filter_list),
+            tooltip: 'Filter',
             onSelected: (value) {
               setState(() {
                 _selectedFilter = value;
               });
               _loadLocationHistory();
             },
-            itemBuilder: (context) => _timeFilters
-                .map((filter) => PopupMenuItem(
-                      value: filter,
-                      child: Row(
-                        children: [
-                          Icon(
-                            _selectedFilter == filter 
-                                ? Icons.radio_button_checked 
-                                : Icons.radio_button_unchecked,
-                            size: 20,
-                          ),
-                          const SizedBox(width: 8),
-                          Text(filter),
-                        ],
-                      ),
-                    ))
-                .toList(),
-          ),
-          IconButton(
-            onPressed: _loadLocationHistory,
-            icon: const Icon(Icons.refresh),
+            itemBuilder: (context) => _timeFilters.map((filter) => PopupMenuItem(
+              value: filter,
+              child: Text(filter),
+            )).toList(),
           ),
         ],
-        bottom: TabBar(
-          controller: _tabController,
-          indicatorColor: Colors.white,
-          tabs: const [
-            Tab(icon: Icon(Icons.map), text: 'Map'),
-            Tab(icon: Icon(Icons.list), text: 'List'),
-          ],
-        ),
       ),
-      body: TabBarView(
-        controller: _tabController,
-        children: [
-          _buildMapView(),
-          _buildListView(),
-        ],
-      ),
+      body: _isLoading 
+          ? const Center(child: CircularProgressIndicator())
+          : _locations.isEmpty
+              ? Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.history, size: 64, color: Colors.grey[400]),
+                      const SizedBox(height: 16),
+                      const Text('No location history'),
+                    ],
+                  ),
+                )
+              : ListView.builder(
+                  itemCount: _locations.length,
+                  itemBuilder: (context, index) {
+                    final location = _locations[index];
+                    return ListTile(
+                      leading: const Icon(Icons.location_on),
+                      title: Text('${location.latitude.toStringAsFixed(4)}, ${location.longitude.toStringAsFixed(4)}'),
+                      subtitle: Text(location.timestamp.toString()),
+                    );
+                  },
+                ),
     );
   }
 }

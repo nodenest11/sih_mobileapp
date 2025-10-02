@@ -130,29 +130,32 @@ class _ProfileScreenState extends State<ProfileScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: const Color(0xFFF8FAFC),
       appBar: AppBar(
         title: const Text('Profile'),
         backgroundColor: Colors.white,
-        foregroundColor: const Color(0xFF1565C0),
+        foregroundColor: const Color(0xFF0F172A),
         elevation: 0,
-        actions: [
-          IconButton(
-            onPressed: _showAboutDialog,
-            icon: const Icon(Icons.info_outline),
-          ),
-        ],
+        shadowColor: Colors.black12,
+        scrolledUnderElevation: 1,
       ),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(20),
         children: [
           // Profile Header
           Container(
             padding: const EdgeInsets.all(24),
             decoration: BoxDecoration(
               color: Colors.white,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.grey.shade200),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: const Color(0xFFE2E8F0)),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.03),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
+              ],
             ),
             child: Column(
               children: [
@@ -161,8 +164,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   width: 80,
                   height: 80,
                   decoration: BoxDecoration(
-                    color: const Color(0xFF1565C0),
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF1E40AF), Color(0xFF1E3A8A)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
                     borderRadius: BorderRadius.circular(40),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF1E40AF).withOpacity(0.3),
+                        blurRadius: 12,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
                   ),
                   child: Center(
                     child: Text(
@@ -170,8 +184,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           ? widget.tourist.name[0].toUpperCase()
                           : '?',
                       style: const TextStyle(
-                        fontSize: 32,
-                        fontWeight: FontWeight.w600,
+                        fontSize: 36,
+                        fontWeight: FontWeight.w700,
                         color: Colors.white,
                       ),
                     ),
@@ -185,7 +199,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   style: const TextStyle(
                     fontSize: 22,
                     fontWeight: FontWeight.w600,
-                    color: Color(0xFF333333),
+                    color: Color(0xFF0F172A),
+                    letterSpacing: -0.5,
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -194,15 +209,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   decoration: BoxDecoration(
-                    color: Colors.grey.shade100,
+                    color: const Color(0xFFF8FAFC),
                     borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: const Color(0xFFE2E8F0)),
                   ),
                   child: Text(
                     'ID: ${widget.tourist.id}',
-                    style: TextStyle(
-                      color: Colors.grey.shade700,
-                      fontWeight: FontWeight.w500,
+                    style: const TextStyle(
+                      color: Color(0xFF64748B),
+                      fontWeight: FontWeight.w600,
                       fontSize: 12,
+                      letterSpacing: 0.5,
                     ),
                   ),
                 ),
@@ -214,11 +231,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
           
           // Contact Information
           Container(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
               color: Colors.white,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.grey.shade200),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: const Color(0xFFE2E8F0)),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.03),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
+              ],
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -226,28 +250,29 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 const Text(
                   'Contact Information',
                   style: TextStyle(
-                    fontSize: 16,
+                    fontSize: 15,
                     fontWeight: FontWeight.w600,
-                    color: Color(0xFF333333),
+                    color: Color(0xFF0F172A),
+                    letterSpacing: 0.2,
                   ),
                 ),
                 const SizedBox(height: 16),
                 if (widget.tourist.phone != null) ...[
                   _buildInfoRow(
-                    icon: Icons.phone_outlined,
+                    icon: Icons.phone_rounded,
                     label: 'Phone',
                     value: '+91 ${widget.tourist.phone}',
                   ),
                   const SizedBox(height: 12),
                 ],
                 _buildInfoRow(
-                  icon: Icons.email_outlined,
+                  icon: Icons.email_rounded,
                   label: 'Email',
                   value: widget.tourist.email,
                 ),
                 const SizedBox(height: 12),
                 _buildInfoRow(
-                  icon: Icons.calendar_today_outlined,
+                  icon: Icons.calendar_today_rounded,
                   label: 'Registered',
                   value: widget.tourist.registrationDate != null
                       ? '${widget.tourist.registrationDate!.day}/${widget.tourist.registrationDate!.month}/${widget.tourist.registrationDate!.year}'
@@ -261,11 +286,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
           
           // Location Settings
           Container(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
               color: Colors.white,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.grey.shade200),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: const Color(0xFFE2E8F0)),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.03),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
+              ],
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -273,9 +305,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 const Text(
                   'Location Settings',
                   style: TextStyle(
-                    fontSize: 16,
+                    fontSize: 15,
                     fontWeight: FontWeight.w600,
-                    color: Color(0xFF333333),
+                    color: Color(0xFF0F172A),
+                    letterSpacing: 0.2,
                   ),
                 ),
                 const SizedBox(height: 16),
@@ -283,101 +316,28 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   const Center(child: CircularProgressIndicator())
                 else ...[
                   _buildInfoRow(
-                    icon: Icons.location_on_outlined,
+                    icon: Icons.location_on_rounded,
                     label: 'Location Service',
                     value: _locationSettings['serviceEnabled'] == true ? 'Enabled' : 'Disabled',
-                    valueColor: _locationSettings['serviceEnabled'] == true ? Colors.green : Colors.red,
+                    valueColor: _locationSettings['serviceEnabled'] == true ? const Color(0xFF10B981) : const Color(0xFFDC2626),
                   ),
                   const SizedBox(height: 12),
                   _buildInfoRow(
-                    icon: Icons.security_outlined,
+                    icon: Icons.security_rounded,
                     label: 'Permission',
                     value: _locationSettings['permission']?.toString().split('.').last ?? 'Unknown',
-                    valueColor: _locationSettings['permission']?.toString().contains('granted') == true ? Colors.green : Colors.orange,
+                    valueColor: _locationSettings['permission']?.toString().contains('granted') == true ? const Color(0xFF10B981) : const Color(0xFFF59E0B),
                   ),
                   const SizedBox(height: 12),
                   _buildInfoRow(
-                    icon: Icons.track_changes_outlined,
+                    icon: Icons.track_changes_rounded,
                     label: 'Tracking',
                     value: _locationSettings['isTracking'] == true ? 'Active' : 'Inactive',
-                    valueColor: _locationSettings['isTracking'] == true ? Colors.green : Colors.grey,
+                    valueColor: _locationSettings['isTracking'] == true ? const Color(0xFF10B981) : const Color(0xFF94A3B8),
                   ),
                 ],
               ],
             ),
-          ),
-          
-          const SizedBox(height: 16),
-          
-          // Quick Actions
-          Row(
-            children: [
-              Expanded(
-                child: ElevatedButton.icon(
-                  onPressed: () {
-                    // Create a simple settings screen placeholder
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => Scaffold(
-                          appBar: AppBar(
-                            title: const Text('Settings'),
-                            backgroundColor: const Color(0xFF1565C0),
-                            foregroundColor: Colors.white,
-                          ),
-                          body: const Center(
-                            child: Text('Settings Screen - Coming Soon'),
-                          ),
-                        ),
-                      ),
-                    );
-                  },
-                  icon: const Icon(Icons.settings, size: 16),
-                  label: const Text('Settings'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF1565C0),
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                  ),
-                ),
-              ),
-            ],
-          ),
-          
-          const SizedBox(height: 8),
-          
-          Row(
-            children: [
-              Expanded(
-                child: ElevatedButton.icon(
-                  onPressed: () {
-                    // Create a simple emergency contacts screen placeholder
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => Scaffold(
-                          appBar: AppBar(
-                            title: const Text('Emergency Contacts'),
-                            backgroundColor: const Color(0xFF1565C0),
-                            foregroundColor: Colors.white,
-                          ),
-                          body: const Center(
-                            child: Text('Emergency Contacts Screen - Coming Soon'),
-                          ),
-                        ),
-                      ),
-                    );
-                  },
-                  icon: const Icon(Icons.contacts, size: 16),
-                  label: const Text('Contacts'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF1565C0),
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                  ),
-                ),
-              ),
-            ],
           ),
           
           const SizedBox(height: 24),
@@ -388,19 +348,29 @@ class _ProfileScreenState extends State<ProfileScreen> {
             child: ElevatedButton(
               onPressed: _logout,
               style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.red,
-                foregroundColor: Colors.white,
+                backgroundColor: Colors.white,
+                foregroundColor: const Color(0xFFDC2626),
+                side: const BorderSide(color: Color(0xFFDC2626), width: 1.5),
                 padding: const EdgeInsets.symmetric(vertical: 16),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(8),
                 ),
+                elevation: 0,
               ),
-              child: const Text(
-                'Logout',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w500,
-                ),
+              child: const Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.logout_rounded, size: 20),
+                  SizedBox(width: 8),
+                  Text(
+                    'Logout',
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0.2,
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
@@ -417,10 +387,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }) {
     return Row(
       children: [
-        Icon(
-          icon,
-          size: 20,
-          color: Colors.grey.shade600,
+        Container(
+          width: 36,
+          height: 36,
+          decoration: BoxDecoration(
+            color: const Color(0xFFF8FAFC),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Icon(icon, size: 18, color: const Color(0xFF64748B)),
         ),
         const SizedBox(width: 12),
         Expanded(
@@ -429,18 +403,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
             children: [
               Text(
                 label,
-                style: TextStyle(
+                style: const TextStyle(
                   fontSize: 12,
-                  color: Colors.grey.shade600,
+                  color: Color(0xFF94A3B8),
                   fontWeight: FontWeight.w500,
+                  letterSpacing: 0.3,
                 ),
               ),
+              const SizedBox(height: 2),
               Text(
                 value,
                 style: TextStyle(
                   fontSize: 14,
-                  color: valueColor ?? const Color(0xFF333333),
-                  fontWeight: FontWeight.w500,
+                  fontWeight: FontWeight.w600,
+                  color: valueColor ?? const Color(0xFF0F172A),
                 ),
               ),
             ],

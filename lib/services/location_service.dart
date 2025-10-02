@@ -27,6 +27,13 @@ class LocationService {
   Position? get lastKnownPosition => _lastKnownPosition;
   bool get isTracking => _positionSubscription != null || _updateTimer != null;
 
+  // Helper method to safely add status updates
+  void _addStatus(String status) {
+    if (!_statusController.isClosed) {
+      _addStatus(status);
+    }
+  }
+
   // Get current location with formatted address
   Future<Map<String, dynamic>?> getCurrentLocationWithAddress() async {
     try {
@@ -49,10 +56,10 @@ class LocationService {
         'timestamp': DateTime.now(),
       };
 
-      _statusController.add('Current location: ${locationInfo['address']}');
+      _addStatus('Current location: ${locationInfo['address']}');
       return locationInfo;
     } catch (e) {
-      _statusController.add('Your location will be sharing');
+      _addStatus('Your location will be sharing');
       return null;
     }
   }
@@ -65,7 +72,7 @@ class LocationService {
     // Check if location services are enabled
     serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
-      _statusController.add('Location services are disabled. Please enable them.');
+      _addStatus('Location services are disabled. Please enable them.');
       return false;
     }
 
@@ -74,36 +81,36 @@ class LocationService {
     if (locationPermission == LocationPermission.denied) {
       locationPermission = await Geolocator.requestPermission();
       if (locationPermission == LocationPermission.denied) {
-        _statusController.add('Location permissions are denied.');
+        _addStatus('Location permissions are denied.');
         return false;
       }
     }
 
     if (locationPermission == LocationPermission.deniedForever) {
-      _statusController.add('Location permissions are permanently denied. Please enable them in settings.');
+      _addStatus('Location permissions are permanently denied. Please enable them in settings.');
       return false;
     }
 
     // Request background location permission (Android 10+)
     final backgroundLocationStatus = await Permission.locationAlways.request();
     if (backgroundLocationStatus != PermissionStatus.granted) {
-      _statusController.add('Background location permission is required for continuous tracking.');
+      _addStatus('Background location permission is required for continuous tracking.');
       // Continue anyway as some devices might still work
     }
 
     // Request notification permissions
     final notificationStatus = await Permission.notification.request();
     if (notificationStatus != PermissionStatus.granted) {
-      _statusController.add('Notification permission denied. You may not see tracking status.');
+      _addStatus('Notification permission denied. You may not see tracking status.');
     }
 
     // Request ignore battery optimization
     final ignoreBatteryStatus = await Permission.ignoreBatteryOptimizations.request();
     if (ignoreBatteryStatus != PermissionStatus.granted) {
-      _statusController.add('Please disable battery optimization for continuous tracking.');
+      _addStatus('Please disable battery optimization for continuous tracking.');
     }
 
-    _statusController.add('Location permissions granted.');
+    _addStatus('Location permissions granted.');
     return true;
   }
 
@@ -122,7 +129,7 @@ class LocationService {
       _lastKnownPosition = position;
       return position;
     } catch (e) {
-      _statusController.add('Failed to get current location: $e');
+      _addStatus('Failed to get current location: $e');
       return null;
     }
   }
@@ -136,18 +143,18 @@ class LocationService {
     // Initialize API service with authentication
     await _apiService.initializeAuth();
     
-    _statusController.add('Initializing location services...');
+    _addStatus('Initializing location services...');
     
     final hasPermission = await checkAndRequestPermissions();
     if (!hasPermission) return;
 
-    _statusController.add('Your location will be sharing');
+    _addStatus('Your location will be sharing');
 
     try {
       // Get initial current location immediately
       final currentPosition = await getCurrentLocation();
       if (currentPosition != null) {
-        _statusController.add('Location sharing active');
+        _addStatus('Location sharing active');
         _handleLocationUpdate(currentPosition);
       }
 
@@ -174,11 +181,11 @@ class LocationService {
       ).listen(
         (Position position) {
           _lastKnownPosition = position;
-          _statusController.add('Location sharing active');
+          _addStatus('Location sharing active');
           _handleLocationUpdate(position);
         },
         onError: (error) {
-          _statusController.add('Location error: $error');
+          _addStatus('Location error: $error');
         },
       );
 
@@ -193,7 +200,7 @@ class LocationService {
       );
 
     } catch (e) {
-      _statusController.add('Failed to start tracking: $e');
+      _addStatus('Failed to start tracking: $e');
     }
   }
 
@@ -211,7 +218,10 @@ class LocationService {
     // Stop background service
     await BackgroundLocationService.stopService();
     
-    _statusController.add('Location tracking and background service stopped.');
+    // Safely add status if controller is not closed
+    if (!_statusController.isClosed) {
+      _addStatus('Location tracking and background service stopped.');
+    }
   }
 
   // Handle location update
@@ -229,7 +239,10 @@ class LocationService {
       heading: position.heading,
     );
 
-    _locationController.add(locationData);
+    // Safely add to stream if controller is not closed
+    if (!_locationController.isClosed) {
+      _locationController.add(locationData);
+    }
   }
 
   // Send location update to backend
@@ -245,12 +258,12 @@ class LocationService {
       );
 
       if (response['success'] == true) {
-        _statusController.add('Location updated - Safety: ${response['safety_score']}');
+        _addStatus('Location updated - Safety: ${response['safety_score']}');
       } else {
-        _statusController.add('Location update failed');
+        _addStatus('Location update failed');
       }
     } catch (e) {
-      _statusController.add('Failed to update location to backend: $e');
+      _addStatus('Failed to update location to backend: $e');
     }
   }
 

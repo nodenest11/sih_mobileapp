@@ -362,17 +362,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       appBar: AppBar(
         title: const Text('Safety Map'),
         backgroundColor: Colors.white,
-        foregroundColor: const Color(0xFF1565C0),
+        foregroundColor: const Color(0xFF0F172A),
         elevation: 0,
-        actions: [
-          IconButton(
-            onPressed: _toggleFollowUser,
-            icon: Icon(
-              _isFollowingUser ? Icons.my_location : Icons.location_searching_outlined,
-            ),
-            tooltip: _isFollowingUser ? 'Stop following' : 'Follow location',
-          ),
-        ],
       ),
       body: _currentLocation == null 
         ? const Center(
@@ -577,27 +568,51 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       floatingActionButton: Column(
         mainAxisAlignment: MainAxisAlignment.end,
         children: [
-          FloatingActionButton(
-            heroTag: "layers",
-            mini: true,
-            onPressed: _showMapOptions,
-            backgroundColor: Colors.white,
-            foregroundColor: const Color(0xFF1565C0),
-            child: const Icon(Icons.layers_outlined),
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: const Color(0xFFE2E8F0)),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.08),
+                  blurRadius: 12,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: IconButton(
+              icon: const Icon(Icons.layers_rounded, size: 22),
+              color: const Color(0xFF1E40AF),
+              onPressed: _showMapOptions,
+              padding: const EdgeInsets.all(12),
+            ),
           ),
-          const SizedBox(height: 8),
-          FloatingActionButton(
-            heroTag: "my_location",
-            mini: true,
-            onPressed: () async {
-              await _getCurrentLocation();
-              if (_currentLocation != null) {
-                _updateMapCenter(_currentLocation!);
-              }
-            },
-            backgroundColor: Colors.white,
-            foregroundColor: const Color(0xFF1565C0),
-            child: const Icon(Icons.my_location_outlined),
+          const SizedBox(height: 12),
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: const Color(0xFFE2E8F0)),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.08),
+                  blurRadius: 12,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: IconButton(
+              icon: const Icon(Icons.my_location_rounded, size: 22),
+              color: const Color(0xFF1E40AF),
+              onPressed: () async {
+                await _getCurrentLocation();
+                if (_currentLocation != null) {
+                  _updateMapCenter(_currentLocation!);
+                }
+              },
+              padding: const EdgeInsets.all(12),
+            ),
           ),
         ],
       ),

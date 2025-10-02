@@ -55,7 +55,7 @@ class HeatmapLegend extends StatelessWidget {
           children: [
             Icon(
               Icons.layers,
-              color: AppColors.redPrimary,
+              color: AppColors.primary,
               size: 20,
             ),
             const SizedBox(width: AppSpacing.s),
@@ -69,7 +69,7 @@ class HeatmapLegend extends StatelessWidget {
             const Spacer(),
             Icon(
               isExpanded ? Icons.expand_less : Icons.expand_more,
-              color: AppColors.greyText,
+              color: AppColors.textSecondary,
               size: 20,
             ),
           ],
@@ -102,7 +102,7 @@ class HeatmapLegend extends StatelessWidget {
           style: TextStyle(
             fontSize: 12,
             fontWeight: FontWeight.w500,
-            color: AppColors.greyText,
+            color: Color(0xFF6B7280),
           ),
         ),
         const SizedBox(height: AppSpacing.s),
@@ -156,7 +156,7 @@ class HeatmapLegend extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 13,
                   fontWeight: isVisible ? FontWeight.w500 : FontWeight.w400,
-                  color: isVisible ? Colors.black87 : AppColors.greyText,
+                  color: isVisible ? Colors.black87 : AppColors.textSecondary,
                 ),
               ),
             ),
@@ -175,19 +175,19 @@ class HeatmapLegend extends StatelessWidget {
           style: TextStyle(
             fontSize: 12,
             fontWeight: FontWeight.w500,
-            color: AppColors.greyText,
+            color: Color(0xFF6B7280),
           ),
         ),
         const SizedBox(height: AppSpacing.s),
         _buildGradientBar(),
         const SizedBox(height: AppSpacing.s / 2),
-        const Row(
+        Row(
           children: [
             Text(
               "Low",
               style: TextStyle(
                 fontSize: 11,
-                color: AppColors.greyText,
+                color: AppColors.textSecondary,
               ),
             ),
             Spacer(),
@@ -195,7 +195,7 @@ class HeatmapLegend extends StatelessWidget {
               "High",
               style: TextStyle(
                 fontSize: 11,
-                color: AppColors.greyText,
+                color: AppColors.textSecondary,
               ),
             ),
           ],
@@ -313,13 +313,13 @@ class HeatmapControls extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.all(AppSpacing.s / 2),
           decoration: BoxDecoration(
-            color: isActive ? AppColors.redPrimary.withValues(alpha: 0.1) : Colors.transparent,
+            color: isActive ? AppColors.primary.withValues(alpha: 0.1) : Colors.transparent,
             borderRadius: BorderRadius.circular(6),
           ),
           child: Icon(
             icon,
             size: 18,
-            color: isActive ? AppColors.redPrimary : AppColors.greyText,
+            color: isActive ? AppColors.primary : AppColors.textSecondary,
           ),
         ),
       ),

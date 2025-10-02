@@ -253,8 +253,9 @@ class _EFIRFormScreenState extends State<EFIRFormScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('File E-FIR'),
-        backgroundColor: Colors.red.shade700,
-        foregroundColor: Colors.white,
+        backgroundColor: Colors.white,
+        foregroundColor: const Color(0xFF0F172A),
+        elevation: 0,
       ),
       body: _isSubmitting
           ? const Center(

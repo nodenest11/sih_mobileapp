@@ -4,6 +4,7 @@ import '../services/api_service.dart';
 import '../models/tourist.dart';
 import '../widgets/modern_app_wrapper.dart';
 import '../utils/logger.dart';
+import '../theme/app_theme.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -233,36 +234,68 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: const Color(0xFFF8FAFC),
       body: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
+          padding: const EdgeInsets.all(AppSpacing.l),
           child: Form(
             key: _formKey,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const SizedBox(height: 60),
+                const SizedBox(height: 40),
+                
                 // App Logo/Title
-                const Icon(
-                  Icons.security,
-                  size: 80,
-                  color: Color(0xFF1565C0),
+                Container(
+                  width: 80,
+                  height: 80,
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF1E40AF), Color(0xFF1E3A8A)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF1E40AF).withOpacity(0.3),
+                        blurRadius: 20,
+                        offset: const Offset(0, 8),
+                      ),
+                    ],
+                  ),
+                  child: const Icon(
+                    Icons.shield_rounded,
+                    size: 40,
+                    color: Colors.white,
+                  ),
                 ),
-                const SizedBox(height: 24),
-                Text(
-                  'Tourist Safety',
-                  style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: const Color(0xFF1565C0),
+                
+                const SizedBox(height: AppSpacing.l),
+                
+                const Text(
+                  'SafeHorizon',
+                  style: TextStyle(
+                    fontSize: 32,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF0F172A),
+                    letterSpacing: -1,
                   ),
                   textAlign: TextAlign.center,
                 ),
-                const SizedBox(height: 8),
+                
+                const SizedBox(height: AppSpacing.xs),
+                
                 Text(
                   _isLoginMode ? 'Welcome back!' : 'Create your account',
-                  style: Theme.of(context).textTheme.bodyLarge,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    color: Color(0xFF64748B),
+                    fontWeight: FontWeight.w500,
+                  ),
                   textAlign: TextAlign.center,
                 ),
+                
                 const SizedBox(height: 48),
                 
                 // Name field (only for registration)
@@ -271,39 +304,39 @@ class _LoginScreenState extends State<LoginScreen> {
                     controller: _nameController,
                     decoration: const InputDecoration(
                       labelText: 'Full Name',
-                      prefixIcon: Icon(Icons.person),
+                      prefixIcon: Icon(Icons.person_rounded),
                     ),
                     validator: _validateName,
                     textInputAction: TextInputAction.next,
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: AppSpacing.m),
                 ],
                 
                 // Email field
                 TextFormField(
                   controller: _emailController,
                   decoration: const InputDecoration(
-                    labelText: 'Email',
-                    prefixIcon: Icon(Icons.email),
+                    labelText: 'Email Address',
+                    prefixIcon: Icon(Icons.email_rounded),
                   ),
                   keyboardType: TextInputType.emailAddress,
                   validator: _validateEmail,
                   textInputAction: TextInputAction.next,
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: AppSpacing.m),
                 
                 // Password field
                 TextFormField(
                   controller: _passwordController,
                   decoration: const InputDecoration(
                     labelText: 'Password',
-                    prefixIcon: Icon(Icons.lock),
+                    prefixIcon: Icon(Icons.lock_rounded),
                   ),
                   obscureText: true,
                   validator: _validatePassword,
                   textInputAction: TextInputAction.next,
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: AppSpacing.m),
                 
                 // Additional fields for registration
                 if (!_isLoginMode) ...[
@@ -311,68 +344,78 @@ class _LoginScreenState extends State<LoginScreen> {
                     controller: _phoneController,
                     decoration: const InputDecoration(
                       labelText: 'Phone Number (Optional)',
-                      prefixIcon: Icon(Icons.phone),
+                      prefixIcon: Icon(Icons.phone_rounded),
                     ),
                     keyboardType: TextInputType.phone,
                     textInputAction: TextInputAction.next,
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: AppSpacing.m),
                   TextFormField(
                     controller: _emergencyContactController,
                     decoration: const InputDecoration(
                       labelText: 'Emergency Contact Name (Optional)',
-                      prefixIcon: Icon(Icons.contacts),
+                      prefixIcon: Icon(Icons.contact_emergency_rounded),
                     ),
                     textInputAction: TextInputAction.next,
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: AppSpacing.m),
                   TextFormField(
                     controller: _emergencyPhoneController,
                     decoration: const InputDecoration(
                       labelText: 'Emergency Contact Phone (Optional)',
-                      prefixIcon: Icon(Icons.phone_in_talk),
+                      prefixIcon: Icon(Icons.phone_in_talk_rounded),
                     ),
                     keyboardType: TextInputType.phone,
                     textInputAction: TextInputAction.done,
                   ),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: AppSpacing.m),
                 ],
                 
-                const SizedBox(height: 32),
+                const SizedBox(height: AppSpacing.l),
                 
                 // Login/Register button
-                ElevatedButton(
-                  onPressed: _isLoading ? null : (_isLoginMode ? _login : _register),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF1565C0),
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: _isLoading ? null : (_isLoginMode ? _login : _register),
+                    style: primaryButtonStyle,
+                    child: _isLoading
+                        ? const SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: CircularProgressIndicator(
+                              color: Colors.white,
+                              strokeWidth: 2,
+                            ),
+                          )
+                        : Text(_isLoginMode ? 'Sign In' : 'Create Account'),
                   ),
-                  child: _isLoading
-                      ? const CircularProgressIndicator(color: Colors.white)
-                      : Text(
-                          _isLoginMode ? 'Login' : 'Register',
-                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                        ),
                 ),
-                const SizedBox(height: 16),
+                
+                const SizedBox(height: AppSpacing.m),
                 
                 // Switch mode button
-                TextButton(
-                  onPressed: _isLoading ? null : _switchMode,
-                  child: Text(
-                    _isLoginMode
-                        ? "Don't have an account? Register"
-                        : "Already have an account? Login",
-                    style: const TextStyle(color: Color(0xFF1565C0)),
-                  ),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      _isLoginMode
+                          ? "Don't have an account? "
+                          : "Already have an account? ",
+                      style: TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: 14,
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: _isLoading ? null : _switchMode,
+                      style: textButtonStyle,
+                      child: Text(
+                        _isLoginMode ? 'Sign Up' : 'Sign In',
+                      ),
+                    ),
+                  ],
                 ),
-                
-
-
               ],
             ),
           ),

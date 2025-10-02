@@ -131,26 +131,21 @@ class _NotificationScreenState extends State<NotificationScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: const Color(0xFFF8FAFC),
       appBar: AppBar(
         title: const Text('Notifications'),
         backgroundColor: Colors.white,
-        foregroundColor: const Color(0xFF1565C0),
+        foregroundColor: const Color(0xFF0F172A),
         elevation: 0,
         actions: [
           IconButton(
+            icon: const Icon(Icons.refresh_rounded),
             onPressed: _refreshAlerts,
-            icon: _isRefreshing 
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.refresh),
             tooltip: 'Refresh',
           ),
           PopupMenuButton<AlertType?>(
             icon: const Icon(Icons.filter_list),
-            tooltip: 'Filter notifications',
+            tooltip: 'Filter',
             onSelected: (AlertType? filter) {
               setState(() {
                 _selectedFilter = filter;
@@ -229,22 +224,31 @@ class _NotificationScreenState extends State<NotificationScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(
-            _selectedFilter != null 
-                ? Icons.filter_list_off 
-                : Icons.notifications_none,
-            size: 64,
-            color: Colors.grey.shade400,
+          Container(
+            width: 80,
+            height: 80,
+            decoration: BoxDecoration(
+              color: const Color(0xFFF8FAFC),
+              borderRadius: BorderRadius.circular(40),
+            ),
+            child: Icon(
+              _selectedFilter != null 
+                  ? Icons.filter_list_off_rounded 
+                  : Icons.notifications_none_rounded,
+              size: 40,
+              color: const Color(0xFF94A3B8),
+            ),
           ),
           const SizedBox(height: 16),
           Text(
             _selectedFilter != null
                 ? 'No notifications for this filter'
                 : 'No notifications yet',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w500,
-              color: Colors.grey.shade600,
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF0F172A),
+              letterSpacing: -0.2,
             ),
           ),
           const SizedBox(height: 8),
@@ -252,9 +256,9 @@ class _NotificationScreenState extends State<NotificationScreen> {
             _selectedFilter != null
                 ? 'Try changing the filter or check back later'
                 : 'You\'ll see important updates and alerts here',
-            style: TextStyle(
-              fontSize: 14,
-              color: Colors.grey.shade500,
+            style: const TextStyle(
+              fontSize: 13,
+              color: Color(0xFF94A3B8),
             ),
             textAlign: TextAlign.center,
           ),
@@ -264,131 +268,123 @@ class _NotificationScreenState extends State<NotificationScreen> {
   }
 
   Widget _buildNotificationCard(Alert alert) {
-    return Card(
+    return Container(
       margin: const EdgeInsets.only(bottom: 12),
-      elevation: 2,
-      shape: RoundedRectangleBorder(
+      decoration: BoxDecoration(
+        color: Colors.white,
         borderRadius: BorderRadius.circular(12),
-        side: BorderSide(
-          color: _getSeverityColor(alert.severity).withValues(alpha: 0.3),
-          width: 1,
-        ),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.03),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
       child: InkWell(
         borderRadius: BorderRadius.circular(12),
         onTap: () => _showAlertDetails(alert),
         child: Padding(
           padding: const EdgeInsets.all(16),
-          child: Column(
+          child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: _getSeverityColor(alert.severity).withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Icon(
-                      _getAlertTypeIcon(alert.type),
-                      color: _getSeverityColor(alert.severity),
-                      size: 20,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: _getSeverityColor(alert.severity).withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  _getAlertTypeIcon(alert.type),
+                  color: _getSeverityColor(alert.severity),
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
                       children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                alert.title,
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.grey.shade800,
-                                ),
-                              ),
+                        Expanded(
+                          child: Text(
+                            alert.title,
+                            style: const TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF0F172A),
+                              letterSpacing: -0.2,
                             ),
-                            PopupMenuButton<String>(
-                              icon: Icon(
-                                Icons.more_vert,
-                                size: 18,
-                                color: Colors.grey.shade600,
-                              ),
-                              onSelected: (value) {
-                                if (value == 'delete') {
-                                  _showDeleteConfirmation(alert);
-                                }
-                              },
-                              itemBuilder: (context) => [
-                                const PopupMenuItem(
-                                  value: 'delete',
-                                  child: Row(
-                                    children: [
-                                      Icon(Icons.delete_outline, size: 18),
-                                      SizedBox(width: 8),
-                                      Text('Delete'),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          alert.description,
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: Colors.grey.shade600,
-                            height: 1.3,
                           ),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
                         ),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 2,
-                              ),
-                              decoration: BoxDecoration(
-                                color: _getTypeColor(alert.type).withValues(alpha: 0.1),
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(
-                                  color: _getTypeColor(alert.type).withValues(alpha: 0.3),
-                                ),
-                              ),
-                              child: Text(
-                                _getAlertTypeDisplayName(alert.type),
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w500,
-                                  color: _getTypeColor(alert.type),
-                                ),
-                              ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 3,
+                          ),
+                          decoration: BoxDecoration(
+                            color: _getTypeColor(alert.type).withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: _getTypeColor(alert.type).withOpacity(0.3),
                             ),
-                            const Spacer(),
-                            Text(
-                                                                                                                _formatTimestamp(alert.createdAt),
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.grey.shade500,
-                              ),
+                          ),
+                          child: Text(
+                            _getAlertTypeDisplayName(alert.type),
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600,
+                              color: _getTypeColor(alert.type),
+                              letterSpacing: 0.3,
                             ),
-                          ],
+                          ),
                         ),
                       ],
                     ),
-                  ),
-                ],
+                    const SizedBox(height: 6),
+                    Text(
+                      alert.description,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: Color(0xFF64748B),
+                        height: 1.4,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.schedule_rounded,
+                          size: 13,
+                          color: const Color(0xFF94A3B8),
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          _formatTimestamp(alert.createdAt),
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Color(0xFF94A3B8),
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        const Spacer(),
+                        IconButton(
+                          icon: const Icon(Icons.delete_outline_rounded, size: 18),
+                          color: const Color(0xFF94A3B8),
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
+                          onPressed: () => _showDeleteConfirmation(alert),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ],
           ),

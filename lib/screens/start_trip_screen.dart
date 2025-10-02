@@ -82,9 +82,9 @@ class _StartTripScreenState extends State<StartTripScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Start New Trip'),
-        backgroundColor: AppColors.redPrimary,
-        foregroundColor: Colors.white,
+        title: const Text('Start Trip'),
+        backgroundColor: Colors.white,
+        foregroundColor: const Color(0xFF0F172A),
         elevation: 0,
       ),
       body: Form(
@@ -100,7 +100,7 @@ class _StartTripScreenState extends State<StartTripScreen> {
                   children: [
                     Row(
                       children: [
-                        Icon(Icons.flight_takeoff, color: AppColors.redPrimary),
+                        Icon(Icons.flight_takeoff, color: AppColors.primary),
                         const SizedBox(width: 8),
                         const Text(
                           'Trip Details',
@@ -154,7 +154,7 @@ class _StartTripScreenState extends State<StartTripScreen> {
                   children: [
                     Row(
                       children: [
-                        Icon(Icons.trending_up, color: AppColors.redPrimary),
+                        Icon(Icons.trending_up, color: AppColors.primary),
                         const SizedBox(width: 8),
                         const Text(
                           'Popular Destinations',
@@ -173,7 +173,7 @@ class _StartTripScreenState extends State<StartTripScreen> {
                           .map((destination) => ActionChip(
                                 label: Text(destination),
                                 onPressed: () => _selectDestination(destination),
-                                backgroundColor: AppColors.greyLight,
+                                backgroundColor: AppColors.surfaceVariant,
                               ))
                           .toList(),
                     ),
@@ -212,7 +212,7 @@ class _StartTripScreenState extends State<StartTripScreen> {
               child: ElevatedButton(
                 onPressed: _isLoading ? null : _startTrip,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.redPrimary,
+                  backgroundColor: AppColors.primary,
                   foregroundColor: Colors.white,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(8),

@@ -90,7 +90,7 @@ class _TripHistoryScreenState extends State<TripHistoryScreen> {
               Navigator.pop(context);
               _endActiveTrip();
             },
-            style: ElevatedButton.styleFrom(backgroundColor: AppColors.redPrimary),
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
             child: const Text('End Trip', style: TextStyle(color: Colors.white)),
           ),
         ],
@@ -105,7 +105,7 @@ class _TripHistoryScreenState extends State<TripHistoryScreen> {
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(8),
           gradient: LinearGradient(
-            colors: [AppColors.redPrimary.withValues(alpha: 0.1), Colors.white],
+            colors: [AppColors.primary.withValues(alpha: 0.1), Colors.white],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
@@ -136,7 +136,7 @@ class _TripHistoryScreenState extends State<TripHistoryScreen> {
                   IconButton(
                     onPressed: _showEndTripDialog,
                     icon: const Icon(Icons.stop_circle),
-                    color: AppColors.redPrimary,
+                    color: AppColors.primary,
                     tooltip: 'End Trip',
                   ),
                 ],
@@ -144,7 +144,7 @@ class _TripHistoryScreenState extends State<TripHistoryScreen> {
               const SizedBox(height: 8),
               Row(
                 children: [
-                  Icon(Icons.location_on, color: AppColors.redPrimary, size: 20),
+                  Icon(Icons.location_on, color: AppColors.primary, size: 20),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
@@ -162,7 +162,7 @@ class _TripHistoryScreenState extends State<TripHistoryScreen> {
                 Text(
                   trip.itinerary!,
                   style: TextStyle(
-                    color: AppColors.greyText,
+                    color: AppColors.textSecondary,
                     fontSize: 14,
                   ),
                 ),
@@ -170,12 +170,12 @@ class _TripHistoryScreenState extends State<TripHistoryScreen> {
               const SizedBox(height: 12),
               Row(
                 children: [
-                  Icon(Icons.access_time, size: 16, color: AppColors.greyText),
+                  Icon(Icons.access_time, size: 16, color: AppColors.textSecondary),
                   const SizedBox(width: 4),
                   Text(
                     'Started ${_formatDate(trip.startDate)}',
                     style: TextStyle(
-                      color: AppColors.greyText,
+                      color: AppColors.textSecondary,
                       fontSize: 12,
                     ),
                   ),
@@ -222,7 +222,7 @@ class _TripHistoryScreenState extends State<TripHistoryScreen> {
             Text(
               '${_formatDate(trip.startDate)} • ${trip.formattedDuration}',
               style: TextStyle(
-                color: AppColors.greyText,
+                color: AppColors.textSecondary,
                 fontSize: 12,
               ),
             ),
@@ -269,14 +269,9 @@ class _TripHistoryScreenState extends State<TripHistoryScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Trip History'),
-        backgroundColor: AppColors.redPrimary,
-        foregroundColor: Colors.white,
-        actions: [
-          IconButton(
-            onPressed: _loadTripHistory,
-            icon: const Icon(Icons.refresh),
-          ),
-        ],
+        backgroundColor: Colors.white,
+        foregroundColor: const Color(0xFF0F172A),
+        elevation: 0,
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
@@ -303,7 +298,7 @@ class _TripHistoryScreenState extends State<TripHistoryScreen> {
                   _loadTripHistory(); // Refresh the list
                 }
               },
-              backgroundColor: AppColors.redPrimary,
+              backgroundColor: AppColors.primary,
               icon: const Icon(Icons.add, color: Colors.white),
               label: const Text(
                 'Start Trip',
@@ -324,7 +319,7 @@ class _TripHistoryScreenState extends State<TripHistoryScreen> {
             Icon(
               Icons.flight_takeoff,
               size: 80,
-              color: AppColors.greyText,
+              color: AppColors.textSecondary,
             ),
             const SizedBox(height: 16),
             const Text(
@@ -338,7 +333,7 @@ class _TripHistoryScreenState extends State<TripHistoryScreen> {
             Text(
               'Start your first trip to begin tracking your journeys',
               style: TextStyle(
-                color: AppColors.greyText,
+                color: AppColors.textSecondary,
                 fontSize: 16,
               ),
               textAlign: TextAlign.center,
@@ -355,7 +350,7 @@ class _TripHistoryScreenState extends State<TripHistoryScreen> {
                 }
               },
               style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.redPrimary,
+                backgroundColor: AppColors.primary,
                 foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
               ),

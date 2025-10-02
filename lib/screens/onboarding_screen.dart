@@ -16,34 +16,28 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   final List<OnboardingPage> _pages = [
     OnboardingPage(
-      title: 'Welcome to Tourist Safety',
-      description: 'Your personal safety companion for exploring new places with confidence and peace of mind.',
-      icon: Icons.security_outlined,
-      color: Colors.blue,
+      title: 'Welcome to SafeHorizon',
+      description: 'Your trusted companion for safe and confident travel experiences.',
+      icon: Icons.shield_outlined,
+      color: AppColors.primary,
     ),
     OnboardingPage(
-      title: 'Live Location Tracking',
-      description: 'Stay connected with real-time location sharing and automatic safety updates for your loved ones.',
-      icon: Icons.location_on_outlined,
-      color: Colors.green,
+      title: 'Real-Time Tracking',
+      description: 'Stay connected with live location updates and safety monitoring.',
+      icon: Icons.my_location_outlined,
+      color: AppColors.success,
     ),
     OnboardingPage(
-      title: 'Safety Dashboard',
-      description: 'Monitor your safety score, view restricted areas, and get personalized safety recommendations.',
-      icon: Icons.dashboard_outlined,
-      color: Colors.orange,
+      title: 'Instant Alerts',
+      description: 'Get notified about restricted areas and safety concerns in real-time.',
+      icon: Icons.notifications_active_outlined,
+      color: AppColors.warning,
     ),
     OnboardingPage(
-      title: 'Emergency Features',
-      description: 'Quick access to panic button, emergency contacts, and instant alert system for critical situations.',
+      title: 'Emergency Help',
+      description: 'Quick access to panic button and emergency services when you need them.',
       icon: Icons.emergency_outlined,
-      color: Colors.red,
-    ),
-    OnboardingPage(
-      title: 'Trip Management',
-      description: 'Plan and track your trips, maintain location history, and manage your travel itineraries.',
-      icon: Icons.trip_origin_outlined,
-      color: Colors.purple,
+      color: AppColors.error,
     ),
   ];
 
@@ -76,19 +70,10 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     }
   }
 
-  void _previousPage() {
-    if (_currentPage > 0) {
-      _pageController.previousPage(
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeInOut,
-      );
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: AppColors.surface,
       body: SafeArea(
         child: Column(
           children: [
@@ -96,14 +81,15 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             Align(
               alignment: Alignment.topRight,
               child: Padding(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.all(AppSpacing.m),
                 child: TextButton(
                   onPressed: _finishOnboarding,
                   child: Text(
                     'Skip',
                     style: TextStyle(
-                      color: AppColors.greyText,
-                      fontSize: 16,
+                      color: AppColors.textSecondary,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
                     ),
                   ),
                 ),
@@ -128,67 +114,39 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             
             // Page indicator
             Padding(
-              padding: const EdgeInsets.symmetric(vertical: 20),
+              padding: const EdgeInsets.symmetric(vertical: AppSpacing.l),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: List.generate(
                   _pages.length,
-                  (index) => Container(
+                  (index) => AnimatedContainer(
+                    duration: const Duration(milliseconds: 300),
                     margin: const EdgeInsets.symmetric(horizontal: 4),
-                    width: _currentPage == index ? 24 : 8,
+                    width: _currentPage == index ? 32 : 8,
                     height: 8,
                     decoration: BoxDecoration(
                       color: _currentPage == index 
-                          ? AppColors.redPrimary 
-                          : AppColors.greyLight,
-                      borderRadius: BorderRadius.circular(4),
+                          ? AppColors.primary 
+                          : AppColors.border,
+                      borderRadius: BorderRadius.circular(AppRadius.full),
                     ),
                   ),
                 ),
               ),
             ),
             
-            // Navigation buttons
+            // Next/Get Started button
             Padding(
-              padding: const EdgeInsets.all(24),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  // Previous button
-                  if (_currentPage > 0)
-                    TextButton(
-                      onPressed: _previousPage,
-                      child: Text(
-                        'Previous',
-                        style: TextStyle(
-                          color: AppColors.greyText,
-                          fontSize: 16,
-                        ),
-                      ),
-                    )
-                  else
-                    const SizedBox(width: 60),
-                  
-                  // Next/Get Started button
-                  ElevatedButton(
-                    onPressed: _nextPage,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.redPrimary,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(25),
-                      ),
-                    ),
-                    child: Text(
-                      _currentPage == _pages.length - 1 ? 'Get Started' : 'Next',
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
+              padding: const EdgeInsets.all(AppSpacing.l),
+              child: SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: _nextPage,
+                  style: primaryButtonStyle,
+                  child: Text(
+                    _currentPage == _pages.length - 1 ? 'Get Started' : 'Next',
                   ),
-                ],
+                ),
               ),
             ),
           ],
@@ -238,87 +196,17 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             page.description,
             style: TextStyle(
               fontSize: 16,
-              color: AppColors.greyText,
+              color: AppColors.textSecondary,
               height: 1.5,
             ),
             textAlign: TextAlign.center,
           ),
-          
-          const SizedBox(height: 48),
-          
-          // Feature highlights based on page
-          if (_currentPage == 1) _buildLocationFeatures(),
-          if (_currentPage == 2) _buildSafetyFeatures(),
-          if (_currentPage == 3) _buildEmergencyFeatures(),
-          if (_currentPage == 4) _buildTripFeatures(),
         ],
       ),
     );
   }
 
-  Widget _buildLocationFeatures() {
-    return Column(
-      children: [
-        _buildFeatureItem(Icons.my_location, 'Real-time GPS tracking'),
-        _buildFeatureItem(Icons.share_location, 'Location sharing'),
-        _buildFeatureItem(Icons.history, 'Location history'),
-      ],
-    );
-  }
 
-  Widget _buildSafetyFeatures() {
-    return Column(
-      children: [
-        _buildFeatureItem(Icons.score, 'Safety score monitoring'),
-        _buildFeatureItem(Icons.warning, 'Risk area alerts'),
-        _buildFeatureItem(Icons.lightbulb, 'Safety recommendations'),
-      ],
-    );
-  }
-
-  Widget _buildEmergencyFeatures() {
-    return Column(
-      children: [
-        _buildFeatureItem(Icons.emergency, 'One-tap panic button'),
-        _buildFeatureItem(Icons.contacts, 'Emergency contacts'),
-        _buildFeatureItem(Icons.notification_important, 'Instant alerts'),
-      ],
-    );
-  }
-
-  Widget _buildTripFeatures() {
-    return Column(
-      children: [
-        _buildFeatureItem(Icons.trip_origin, 'Trip planning'),
-        _buildFeatureItem(Icons.route, 'Route tracking'),
-        _buildFeatureItem(Icons.history, 'Trip history'),
-      ],
-    );
-  }
-
-  Widget _buildFeatureItem(IconData icon, String text) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            icon,
-            size: 18,
-            color: AppColors.redPrimary,
-          ),
-          const SizedBox(width: 8),
-          Text(
-            text,
-            style: TextStyle(
-              fontSize: 14,
-              color: AppColors.greyText,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 }
 
 class OnboardingPage {
