@@ -49,7 +49,7 @@ class SafetyScoreWidget extends StatelessWidget {
         border: Border.all(color: const Color(0xFFE2E8F0)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.03),
+            color: Colors.black.withValues(alpha: 0.03),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),
@@ -64,10 +64,10 @@ class SafetyScoreWidget extends StatelessWidget {
               width: 72,
               height: 72,
               decoration: BoxDecoration(
-                color: scoreColor.withOpacity(0.08),
+                color: scoreColor.withValues(alpha: 0.08),
                 shape: BoxShape.circle,
                 border: Border.all(
-                  color: scoreColor.withOpacity(0.2),
+                  color: scoreColor.withValues(alpha: 0.2),
                   width: 2,
                 ),
               ),
@@ -89,7 +89,7 @@ class SafetyScoreWidget extends StatelessWidget {
                       style: TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.w500,
-                        color: scoreColor.withOpacity(0.6),
+                        color: scoreColor.withValues(alpha: 0.6),
                         height: 1,
                       ),
                     ),
@@ -118,7 +118,7 @@ class SafetyScoreWidget extends StatelessWidget {
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                         decoration: BoxDecoration(
-                          color: scoreColor.withOpacity(0.1),
+                          color: scoreColor.withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(6),
                         ),
                         child: Row(
@@ -157,10 +157,10 @@ class SafetyScoreWidget extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
                 decoration: BoxDecoration(
-                  color: AppColors.warning.withOpacity(0.08),
+                  color: AppColors.warning.withValues(alpha: 0.08),
                   borderRadius: BorderRadius.circular(6),
                   border: Border.all(
-                    color: AppColors.warning.withOpacity(0.2),
+                    color: AppColors.warning.withValues(alpha: 0.2),
                   ),
                 ),
                 child: Icon(

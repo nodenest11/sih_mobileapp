@@ -22,7 +22,6 @@ class _NotificationScreenState extends State<NotificationScreen> {
   final ApiService _apiService = ApiService();
   List<Alert> _alerts = [];
   bool _isLoading = false;
-  bool _isRefreshing = false;
   AlertType? _selectedFilter;
   
   @override
@@ -62,13 +61,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
   }
 
   Future<void> _refreshAlerts() async {
-    setState(() {
-      _isRefreshing = true;
-    });
     await _loadAlerts();
-    setState(() {
-      _isRefreshing = false;
-    });
   }
 
   Future<void> _markAllAsRead() async {
@@ -276,7 +269,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
         border: Border.all(color: const Color(0xFFE2E8F0)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.03),
+            color: Colors.black.withValues(alpha: 0.03),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),
@@ -294,7 +287,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
                 width: 40,
                 height: 40,
                 decoration: BoxDecoration(
-                  color: _getSeverityColor(alert.severity).withOpacity(0.1),
+                  color: _getSeverityColor(alert.severity).withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Icon(
@@ -327,10 +320,10 @@ class _NotificationScreenState extends State<NotificationScreen> {
                             vertical: 3,
                           ),
                           decoration: BoxDecoration(
-                            color: _getTypeColor(alert.type).withOpacity(0.1),
+                            color: _getTypeColor(alert.type).withValues(alpha: 0.1),
                             borderRadius: BorderRadius.circular(10),
                             border: Border.all(
-                              color: _getTypeColor(alert.type).withOpacity(0.3),
+                              color: _getTypeColor(alert.type).withValues(alpha: 0.3),
                             ),
                           ),
                           child: Text(

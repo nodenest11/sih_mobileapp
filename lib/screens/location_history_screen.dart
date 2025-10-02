@@ -1,3 +1,5 @@
+// ignore_for_file: unused_element
+
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
@@ -91,6 +93,7 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen>
     }
   }
 
+  // ignore: unused_element
   List<Marker> _buildMapMarkers() {
     if (_locations.isEmpty) return [];
     
@@ -125,6 +128,7 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen>
     return markers;
   }
 
+  // ignore: unused_element
   List<Polyline> _buildMapPolylines() {
     if (_locations.length < 2) return [];
     
@@ -139,119 +143,6 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen>
         color: AppColors.primary.withValues(alpha: 0.7),
       ),
     ];
-  }
-
-  Widget _buildMapView() {
-    if (_isLoading) {
-      return const Center(child: CircularProgressIndicator());
-    }
-    
-    if (_locations.isEmpty) {
-      return _buildEmptyState('No location data for selected time period');
-    }
-
-    return FlutterMap(
-      mapController: _mapController,
-      options: MapOptions(
-        initialCenter: _locations.isNotEmpty 
-            ? LatLng(_locations.first.latitude, _locations.first.longitude)
-            : const LatLng(28.6139, 77.2090), // Default to Delhi
-        initialZoom: 15.0,
-        maxZoom: 18.0,
-        minZoom: 1.0,
-      ),
-      children: [
-        TileLayer(
-          urlTemplate: ApiService.osmTileUrl,
-          userAgentPackageName: 'com.safehorizon.tourist',
-        ),
-        PolylineLayer(polylines: _buildMapPolylines()),
-        MarkerLayer(markers: _buildMapMarkers()),
-      ],
-    );
-  }
-
-  Widget _buildListView() {
-    if (_isLoading) {
-      return const Center(child: CircularProgressIndicator());
-    }
-    
-    if (_locations.isEmpty) {
-      return _buildEmptyState('No location data for selected time period');
-    }
-
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: _locations.length,
-      itemBuilder: (context, index) {
-        final location = _locations[index];
-        final isFirst = index == 0;
-        final isLast = index == _locations.length - 1;
-        
-        return Card(
-          margin: const EdgeInsets.only(bottom: 8),
-          child: ListTile(
-            leading: CircleAvatar(
-              backgroundColor: isFirst 
-                  ? Colors.green.shade100 
-                  : isLast 
-                      ? AppColors.primaryLight 
-                      : Colors.blue.shade100,
-              child: Icon(
-                isFirst 
-                    ? Icons.play_arrow 
-                    : isLast 
-                        ? Icons.stop 
-                        : Icons.location_on,
-                color: isFirst 
-                    ? Colors.green 
-                    : isLast 
-                        ? AppColors.primary 
-                        : Colors.blue,
-                size: 20,
-              ),
-            ),
-            title: Text(
-              '${location.latitude.toStringAsFixed(4)}, ${location.longitude.toStringAsFixed(4)}',
-              style: const TextStyle(fontFamily: 'monospace'),
-            ),
-            subtitle: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(_formatDateTime(location.timestamp)),
-                if (location.speed != null)
-                  Text(
-                    'Speed: ${location.speed!.toStringAsFixed(1)} km/h',
-                    style: TextStyle(
-                      color: AppColors.textSecondary,
-                      fontSize: 12,
-                    ),
-                  ),
-                if (location.accuracy != null)
-                  Text(
-                    'Accuracy: ±${location.accuracy!.toStringAsFixed(0)}m',
-                    style: TextStyle(
-                      color: AppColors.textSecondary,
-                      fontSize: 12,
-                    ),
-                  ),
-              ],
-            ),
-            trailing: IconButton(
-              onPressed: () {
-                _mapController.move(
-                  LatLng(location.latitude, location.longitude), 
-                  16.0,
-                );
-                _tabController.animateTo(0); // Switch to map tab
-              },
-              icon: const Icon(Icons.map),
-              tooltip: 'Show on map',
-            ),
-          ),
-        );
-      },
-    );
   }
 
   Widget _buildEmptyState(String message) {
@@ -289,6 +180,7 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen>
     );
   }
 
+  // ignore: unused_element
   String _formatDateTime(DateTime dateTime) {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);

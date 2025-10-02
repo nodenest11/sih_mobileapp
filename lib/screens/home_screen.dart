@@ -16,9 +16,7 @@ import '../widgets/safety_score_widget.dart';
 import '../widgets/geofence_alert.dart';
 import 'map_screen.dart';
 import 'profile_screen.dart';
-import 'start_trip_screen.dart';
-import 'trip_history_screen.dart';
-import 'safety_dashboard_screen.dart';
+import 'location_history_screen.dart';
 import 'emergency_contacts_screen.dart';
 import 'efir_form_screen.dart';
 
@@ -547,7 +545,7 @@ class _HomeScreenState extends State<HomeScreen> {
               color: Colors.white,
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.03),
+                  color: Colors.black.withValues(alpha: 0.03),
                   blurRadius: 4,
                   offset: const Offset(0, 2),
                 ),
@@ -676,7 +674,7 @@ class _HomeScreenState extends State<HomeScreen> {
         border: Border.all(color: const Color(0xFFE2E8F0)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.03),
+            color: Colors.black.withValues(alpha: 0.03),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),
@@ -690,7 +688,7 @@ class _HomeScreenState extends State<HomeScreen> {
               Container(
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF1E40AF).withOpacity(0.08),
+                  color: const Color(0xFF1E40AF).withValues(alpha: 0.08),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: const Icon(
@@ -785,7 +783,7 @@ class _HomeScreenState extends State<HomeScreen> {
         border: Border.all(color: const Color(0xFFE2E8F0)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.03),
+            color: Colors.black.withValues(alpha: 0.03),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),
@@ -813,32 +811,32 @@ class _HomeScreenState extends State<HomeScreen> {
                 onTap: () => _onTabTapped(1),
               ),
               _buildSimpleActionButton(
-                icon: Icons.route_rounded,
-                label: 'Trip',
+                icon: Icons.description_rounded,
+                label: 'E-FIR',
                 onTap: () {
                   Navigator.push(
                     context,
-                    MaterialPageRoute(builder: (context) => const StartTripScreen()),
+                    MaterialPageRoute(builder: (context) => EFIRFormScreen(tourist: widget.tourist)),
                   );
                 },
               ),
               _buildSimpleActionButton(
-                icon: Icons.history_rounded,
+                icon: Icons.location_history_rounded,
                 label: 'History',
                 onTap: () {
                   Navigator.push(
                     context,
-                    MaterialPageRoute(builder: (context) => const TripHistoryScreen()),
+                    MaterialPageRoute(builder: (context) => const LocationHistoryScreen()),
                   );
                 },
               ),
               _buildSimpleActionButton(
-                icon: Icons.shield_rounded,
-                label: 'Safety',
+                icon: Icons.person_rounded,
+                label: 'Profile',
                 onTap: () {
                   Navigator.push(
                     context,
-                    MaterialPageRoute(builder: (context) => const SafetyDashboardScreen()),
+                    MaterialPageRoute(builder: (context) => ProfileScreen(tourist: widget.tourist)),
                   );
                 },
               ),
@@ -930,7 +928,7 @@ class _HomeScreenState extends State<HomeScreen> {
         border: Border.all(color: const Color(0xFFE2E8F0)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.03),
+            color: Colors.black.withValues(alpha: 0.03),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),
@@ -944,7 +942,7 @@ class _HomeScreenState extends State<HomeScreen> {
               Container(
                 padding: const EdgeInsets.all(6),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFDC2626).withOpacity(0.1),
+                  color: const Color(0xFFDC2626).withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(6),
                 ),
                 child: const Icon(
@@ -1004,10 +1002,10 @@ class _HomeScreenState extends State<HomeScreen> {
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: isUnread ? color.withOpacity(0.05) : const Color(0xFFF8FAFC),
+        color: isUnread ? color.withValues(alpha: 0.05) : const Color(0xFFF8FAFC),
         borderRadius: BorderRadius.circular(8),
         border: Border.all(
-          color: isUnread ? color.withOpacity(0.2) : const Color(0xFFE2E8F0),
+          color: isUnread ? color.withValues(alpha: 0.2) : const Color(0xFFE2E8F0),
         ),
       ),
       child: Row(
@@ -1016,7 +1014,7 @@ class _HomeScreenState extends State<HomeScreen> {
           Container(
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color: color.withOpacity(0.1),
+              color: color.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(6),
             ),
             child: Icon(
@@ -1046,7 +1044,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                       decoration: BoxDecoration(
-                        color: color.withOpacity(0.1),
+                        color: color.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(4),
                       ),
                       child: Text(
@@ -1249,7 +1247,7 @@ class _HomeScreenState extends State<HomeScreen> {
         boxShadow: [
           BoxShadow(
             color: (disabled ? const Color(0xFF64748B) : const Color(0xFFDC2626))
-                .withOpacity(0.3),
+                .withValues(alpha: 0.3),
             blurRadius: 12,
             offset: const Offset(0, 4),
           ),
@@ -1267,7 +1265,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.2),
+                    color: Colors.white.withValues(alpha: 0.2),
                     borderRadius: BorderRadius.circular(10),
                   ),
                   child: Icon(
@@ -1297,7 +1295,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             : 'Tap to trigger emergency alert',
                         style: TextStyle(
                           fontSize: 13,
-                          color: Colors.white.withOpacity(0.9),
+                          color: Colors.white.withValues(alpha: 0.9),
                           fontWeight: FontWeight.w500,
                         ),
                       ),
@@ -1307,7 +1305,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 Icon(
                   Icons.arrow_forward_ios_rounded,
                   size: 18,
-                  color: Colors.white.withOpacity(0.7),
+                  color: Colors.white.withValues(alpha: 0.7),
                 ),
               ],
             ),

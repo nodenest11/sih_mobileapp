@@ -2,11 +2,67 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
+import 'firebase_options.dart';
 import 'screens/login_screen.dart';
 import 'screens/onboarding_screen.dart';
 import 'services/api_service.dart';
+import 'services/fcm_notification_service.dart';
 import 'utils/logger.dart';
+
+// Background message handler (must be top-level function)
+@pragma('vm:entry-point')
+Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
+  AppLogger.service('📩 Background message received: ${message.messageId}');
+  
+  // Show notification even when app is in background or terminated
+  final FlutterLocalNotificationsPlugin localNotifications = 
+      FlutterLocalNotificationsPlugin();
+  
+  final notification = message.notification;
+  if (notification != null) {
+    const AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
+      'broadcasts_channel',
+      'Emergency Broadcasts',
+      channelDescription: 'Emergency broadcasts and safety alerts',
+      importance: Importance.max,
+      priority: Priority.max,
+      playSound: true,
+      enableVibration: true,
+      fullScreenIntent: true,
+      category: AndroidNotificationCategory.alarm,
+      icon: '@mipmap/ic_launcher',
+    );
+
+    const DarwinNotificationDetails iosDetails = DarwinNotificationDetails(
+      presentAlert: true,
+      presentBadge: true,
+      presentSound: true,
+      interruptionLevel: InterruptionLevel.critical,
+    );
+
+    const NotificationDetails details = NotificationDetails(
+      android: androidDetails,
+      iOS: iosDetails,
+    );
+
+    await localNotifications.show(
+      message.hashCode,
+      notification.title,
+      notification.body,
+      details,
+      payload: message.data['broadcast_id']?.toString(),
+    );
+    
+    AppLogger.service('✅ Background notification displayed');
+  }
+}
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -18,6 +74,33 @@ void main() async {
   AppLogger.info('🚀 SafeHorizon Tourist App starting up...');
   AppLogger.api('🌐 API Base URL: ${dotenv.env['API_BASE_URL']}');
   AppLogger.service('🔧 Debug mode: ${dotenv.env['DEBUG_MODE']}');
+  
+  // Initialize Firebase
+  try {
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
+    AppLogger.service('✅ Firebase initialized successfully');
+    
+    // Set up background message handler
+    FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+    AppLogger.service('✅ Firebase background message handler registered');
+    
+    // Initialize FCM early (before login) so token can be obtained immediately
+    AppLogger.service('🔄 Starting early FCM initialization...');
+    try {
+      final fcmService = FCMNotificationService();
+      AppLogger.service('FCM service instance created, calling initialize()...');
+      await fcmService.initialize();
+      AppLogger.service('✅ FCM service initialized at app startup');
+    } catch (fcmError, stackTrace) {
+      AppLogger.service('⚠️ FCM early initialization failed: $fcmError', isError: true);
+      AppLogger.service('Stack trace: $stackTrace', isError: true);
+      AppLogger.service('FCM will retry after login');
+    }
+  } catch (e) {
+    AppLogger.service('❌ Firebase initialization failed: $e', isError: true);
+  }
   
   await _initializeApp();
   
@@ -64,7 +147,6 @@ class TouristSafetyApp extends StatelessWidget {
           secondary: const Color(0xFF0F172A),
           brightness: Brightness.light,
           surface: Colors.white,
-          background: const Color(0xFFF8FAFC),
         ),
         useMaterial3: true,
         fontFamily: 'Inter',

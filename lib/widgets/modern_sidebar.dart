@@ -3,16 +3,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/tourist.dart';
 import '../screens/home_screen.dart';
 import '../screens/map_screen.dart';
-import '../screens/start_trip_screen.dart';
-import '../screens/trip_history_screen.dart';
 import '../screens/location_history_screen.dart';
-import '../screens/safety_dashboard_screen.dart';
 import '../screens/emergency_contacts_screen.dart';
 import '../screens/settings_screen.dart';
 import '../screens/profile_screen.dart';
 import '../screens/login_screen.dart';
 import '../screens/efir_form_screen.dart';
 import '../screens/efir_history_screen.dart';
+import '../screens/broadcast_screen.dart';
 
 class ModernSidebar extends StatelessWidget {
   final Tourist tourist;
@@ -113,12 +111,10 @@ class ModernSidebar extends StatelessWidget {
       children: [
         _buildItem(context, Icons.home_rounded, 'Home', HomeScreen(tourist: tourist)),
         _buildItem(context, Icons.map_rounded, 'Map', MapScreen(tourist: tourist)),
+        _buildItem(context, Icons.campaign_rounded, 'Emergency Broadcasts', const BroadcastScreen()),
         _buildItem(context, Icons.description_rounded, 'File E-FIR', EFIRFormScreen(tourist: tourist)),
         _buildItem(context, Icons.history_edu_rounded, 'E-FIR History', EFIRHistoryScreen(tourist: tourist)),
-        _buildItem(context, Icons.trip_origin_rounded, 'Start Trip', const StartTripScreen()),
-        _buildItem(context, Icons.history_rounded, 'Trip History', const TripHistoryScreen()),
         _buildItem(context, Icons.location_history_rounded, 'Location History', const LocationHistoryScreen()),
-        _buildItem(context, Icons.security_rounded, 'Safety Dashboard', const SafetyDashboardScreen()),
         _buildItem(context, Icons.contacts_rounded, 'Emergency Contacts', const EmergencyContactsScreen()),
         _buildItem(context, Icons.person_rounded, 'Profile', ProfileScreen(tourist: tourist)),
         _buildItem(context, Icons.settings_rounded, 'Settings', const SettingsScreen()),

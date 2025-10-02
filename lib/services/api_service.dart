@@ -1595,6 +1595,295 @@ class ApiService {
     }
   }
 
+  // ============================================================================
+  // BROADCAST & NOTIFICATION ENDPOINTS
+  // ============================================================================
+
+  /// Register device for push notifications
+  Future<Map<String, dynamic>> registerDevice({
+    required String deviceToken,
+    required String deviceType,
+    String? deviceName,
+    String? appVersion,
+  }) async {
+    await _ensureInitialized();
+    
+    try {
+      final requestHeaders = await safeHeaders;
+      final requestBody = {
+        'device_token': deviceToken,
+        'device_type': deviceType,
+        if (deviceName != null) 'device_name': deviceName,
+        if (appVersion != null) 'app_version': appVersion,
+      };
+
+      _logRequest('POST', '/device/register', headers: requestHeaders);
+      AppLogger.service('📱 Registering device for push notifications...');
+
+      final response = await client.post(
+        Uri.parse("$baseUrl$apiPrefix/device/register"),
+        headers: requestHeaders,
+        body: jsonEncode(requestBody),
+      ).timeout(timeout);
+
+      _logResponse('/device/register', response.statusCode, body: response.body);
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        
+        // Log full response for debugging
+        AppLogger.service('📦 Device registration response: $data');
+        
+        // Extract device_id with null safety
+        final deviceId = data['device_id'] ?? data['id'] ?? data['deviceId'];
+        if (deviceId != null) {
+          AppLogger.service('✅ Device registered successfully: $deviceId');
+        } else {
+          AppLogger.service('✅ Device registered (no device_id in response)');
+        }
+        
+        return {
+          "success": true,
+          "device_id": deviceId,
+          "message": data['message'] ?? 'Device registered for push notifications',
+          "raw_response": data, // Include full response for debugging
+        };
+      } else if (response.statusCode == 401 || response.statusCode == 403) {
+        await handleAuthError(response.statusCode, '/device/register');
+        throw HttpException("Authentication failed. Please login again.");
+      }
+
+      final error = jsonDecode(response.body);
+      throw HttpException(error['detail'] ?? 'Failed to register device');
+    } catch (e) {
+      AppLogger.service('Failed to register device: $e', isError: true);
+      if (e is HttpException) rethrow;
+      return {
+        "success": false,
+        "message": e.toString(),
+      };
+    }
+  }
+
+  /// Get active broadcasts affecting current location
+  Future<Map<String, dynamic>> getActiveBroadcasts({
+    double? lat,
+    double? lon,
+  }) async {
+    await _ensureInitialized();
+    
+    try {
+      final requestHeaders = await safeHeaders;
+      
+      final queryParams = <String, String>{};
+      if (lat != null) queryParams['lat'] = lat.toString();
+      if (lon != null) queryParams['lon'] = lon.toString();
+      
+      final uri = Uri.parse("$baseUrl$apiPrefix/broadcasts/active")
+          .replace(queryParameters: queryParams.isNotEmpty ? queryParams : null);
+      
+      _logRequest('GET', '/broadcasts/active', headers: requestHeaders);
+
+      final response = await client.get(uri, headers: requestHeaders).timeout(timeout);
+
+      _logResponse('/broadcasts/active', response.statusCode);
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        AppLogger.service('✅ Active broadcasts retrieved: ${data['count']} broadcasts');
+        
+        return {
+          "success": true,
+          "active_broadcasts": data['active_broadcasts'] ?? [],
+          "count": data['count'] ?? 0,
+        };
+      } else if (response.statusCode == 401 || response.statusCode == 403) {
+        await handleAuthError(response.statusCode, '/broadcasts/active');
+        throw HttpException("Authentication failed. Please login again.");
+      }
+
+      AppLogger.warning('Get active broadcasts returned ${response.statusCode}');
+      return {
+        "success": false,
+        "active_broadcasts": [],
+        "count": 0,
+      };
+    } catch (e) {
+      AppLogger.service('Failed to get active broadcasts: $e', isError: true);
+      if (e is HttpException && e.message.contains('Authentication failed')) rethrow;
+      return {
+        "success": false,
+        "active_broadcasts": [],
+        "count": 0,
+      };
+    }
+  }
+
+  /// Acknowledge a broadcast
+  Future<Map<String, dynamic>> acknowledgeBroadcast({
+    required String broadcastId,
+    required String status, // 'safe', 'affected', 'need_help'
+    double? lat,
+    double? lon,
+    String? notes,
+  }) async {
+    await _ensureInitialized();
+    
+    try {
+      final requestHeaders = await safeHeaders;
+      final requestBody = {
+        'status': status,
+        if (lat != null) 'lat': lat,
+        if (lon != null) 'lon': lon,
+        if (notes != null && notes.isNotEmpty) 'notes': notes,
+      };
+
+      _logRequest('POST', '/broadcasts/$broadcastId/acknowledge', headers: requestHeaders);
+      AppLogger.service('📢 Acknowledging broadcast: $broadcastId with status: $status');
+
+      final response = await client.post(
+        Uri.parse("$baseUrl$apiPrefix/broadcasts/$broadcastId/acknowledge"),
+        headers: requestHeaders,
+        body: jsonEncode(requestBody),
+      ).timeout(timeout);
+
+      _logResponse('/broadcasts/$broadcastId/acknowledge', response.statusCode);
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        AppLogger.service('✅ Broadcast acknowledged successfully');
+        
+        return {
+          "success": true,
+          "status": data['status'],
+          "broadcast_id": data['broadcast_id'],
+          "acknowledgment_status": data['acknowledgment_status'],
+          "timestamp": data['timestamp'],
+        };
+      } else if (response.statusCode == 401 || response.statusCode == 403) {
+        await handleAuthError(response.statusCode, '/broadcasts/$broadcastId/acknowledge');
+        throw HttpException("Authentication failed. Please login again.");
+      } else if (response.statusCode == 404) {
+        throw HttpException("Broadcast not found.");
+      }
+
+      final error = jsonDecode(response.body);
+      throw HttpException(error['detail'] ?? 'Failed to acknowledge broadcast');
+    } catch (e) {
+      AppLogger.service('Failed to acknowledge broadcast: $e', isError: true);
+      if (e is HttpException) rethrow;
+      return {
+        "success": false,
+        "message": e.toString(),
+      };
+    }
+  }
+
+  /// Get broadcast history (all broadcasts including acknowledged)
+  Future<Map<String, dynamic>> getBroadcastHistory({
+    int limit = 50,
+    int offset = 0,
+  }) async {
+    await _ensureInitialized();
+    
+    try {
+      final requestHeaders = await safeHeaders;
+      
+      final queryParams = {
+        'limit': limit.toString(),
+        'offset': offset.toString(),
+      };
+      
+      final uri = Uri.parse("$baseUrl$apiPrefix/broadcasts/history")
+          .replace(queryParameters: queryParams);
+      
+      _logRequest('GET', '/broadcasts/history', headers: requestHeaders);
+
+      final response = await client.get(uri, headers: requestHeaders).timeout(timeout);
+
+      _logResponse('/broadcasts/history', response.statusCode);
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        AppLogger.service('✅ Broadcast history retrieved: ${data['total']} total');
+        
+        return {
+          "success": true,
+          "broadcasts": data['broadcasts'] ?? [],
+          "total": data['total'] ?? 0,
+        };
+      } else if (response.statusCode == 401 || response.statusCode == 403) {
+        await handleAuthError(response.statusCode, '/broadcasts/history');
+        throw HttpException("Authentication failed. Please login again.");
+      }
+
+      AppLogger.warning('Get broadcast history returned ${response.statusCode}');
+      return {
+        "success": false,
+        "broadcasts": [],
+        "total": 0,
+      };
+    } catch (e) {
+      AppLogger.service('Failed to get broadcast history: $e', isError: true);
+      if (e is HttpException && e.message.contains('Authentication failed')) rethrow;
+      return {
+        "success": false,
+        "broadcasts": [],
+        "total": 0,
+      };
+    }
+  }
+
+  /// Get all broadcasts (alias for getBroadcastHistory for backward compatibility)
+  Future<Map<String, dynamic>> getAllBroadcasts({
+    int limit = 50,
+    int offset = 0,
+  }) async {
+    return getBroadcastHistory(limit: limit, offset: offset);
+  }
+
+  /// Get broadcast details by ID
+  Future<Map<String, dynamic>> getBroadcastDetails(String broadcastId) async {
+    await _ensureInitialized();
+    
+    try {
+      final requestHeaders = await safeHeaders;
+      
+      _logRequest('GET', '/broadcast/$broadcastId', headers: requestHeaders);
+
+      final response = await client.get(
+        Uri.parse("$baseUrl$apiPrefix/broadcast/$broadcastId"),
+        headers: requestHeaders,
+      ).timeout(timeout);
+
+      _logResponse('/broadcast/$broadcastId', response.statusCode);
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        AppLogger.service('✅ Broadcast details retrieved: $broadcastId');
+        
+        return {
+          "success": true,
+          "broadcast": data,
+        };
+      } else if (response.statusCode == 401 || response.statusCode == 403) {
+        await handleAuthError(response.statusCode, '/broadcast/$broadcastId');
+        throw HttpException("Authentication failed. Please login again.");
+      } else if (response.statusCode == 404) {
+        throw HttpException("Broadcast not found.");
+      }
+
+      throw HttpException("Failed to get broadcast details");
+    } catch (e) {
+      AppLogger.service('Failed to get broadcast details: $e', isError: true);
+      if (e is HttpException) rethrow;
+      return {
+        "success": false,
+        "message": e.toString(),
+      };
+    }
+  }
+
   void dispose() {
     client.close();
   }

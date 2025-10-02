@@ -98,35 +98,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     ) ?? false;
   }
 
-  void _showAboutDialog() {
-    showAboutDialog(
-      context: context,
-      applicationName: 'Tourist Safety App',
-      applicationVersion: '1.0.0',
-      applicationIcon: const Icon(
-        Icons.security,
-        size: 64,
-        color: Colors.blue,
-      ),
-      children: [
-        const Text(
-          'A comprehensive safety application for tourists featuring live tracking, emergency alerts, safety scoring, and restricted area notifications.',
-        ),
-        const SizedBox(height: 16),
-        const Text(
-          'Features:',
-          style: TextStyle(fontWeight: FontWeight.bold),
-        ),
-        const Text('• Live location tracking'),
-        const Text('• Emergency panic button'),
-        const Text('• Safety score monitoring'),
-        const Text('• Geo-fencing alerts'),
-        const Text('• Interactive safety map'),
-        const Text('• Location search'),
-      ],
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -151,7 +122,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               border: Border.all(color: const Color(0xFFE2E8F0)),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.03),
+                  color: Colors.black.withValues(alpha: 0.03),
                   blurRadius: 8,
                   offset: const Offset(0, 2),
                 ),
@@ -172,7 +143,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     borderRadius: BorderRadius.circular(40),
                     boxShadow: [
                       BoxShadow(
-                        color: const Color(0xFF1E40AF).withOpacity(0.3),
+                        color: const Color(0xFF1E40AF).withValues(alpha: 0.3),
                         blurRadius: 12,
                         offset: const Offset(0, 4),
                       ),
@@ -238,7 +209,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               border: Border.all(color: const Color(0xFFE2E8F0)),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.03),
+                  color: Colors.black.withValues(alpha: 0.03),
                   blurRadius: 8,
                   offset: const Offset(0, 2),
                 ),
@@ -293,7 +264,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               border: Border.all(color: const Color(0xFFE2E8F0)),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.03),
+                  color: Colors.black.withValues(alpha: 0.03),
                   blurRadius: 8,
                   offset: const Offset(0, 2),
                 ),

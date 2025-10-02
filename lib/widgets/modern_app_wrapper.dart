@@ -43,11 +43,7 @@ class _ModernAppWrapperState extends State<ModernAppWrapper> {
     _scaffoldKey.currentState?.closeDrawer();
   }
 
-  void _navigateToHome() {
-    setState(() {
-      _currentScreen = _screenCache[HomeScreen] ?? HomeScreen(tourist: widget.tourist);
-    });
-  }
+  // Removed unused _navigateToHome method
 
   void _openDrawer() {
     _scaffoldKey.currentState?.openDrawer();

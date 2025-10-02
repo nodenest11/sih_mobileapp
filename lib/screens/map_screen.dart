@@ -317,15 +317,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     );
   }
 
-  void _toggleFollowUser() {
-    setState(() {
-      _isFollowingUser = !_isFollowingUser;
-    });
-    
-    if (_isFollowingUser && _currentLocation != null) {
-      _updateMapCenter(_currentLocation!);
-    }
-  }
+  // Removed unused _toggleFollowUser method
 
   void _onLocationSelected(LatLng location, String name) {
     _updateMapCenter(location);
@@ -575,7 +567,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
               border: Border.all(color: const Color(0xFFE2E8F0)),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.08),
+                  color: Colors.black.withValues(alpha: 0.08),
                   blurRadius: 12,
                   offset: const Offset(0, 4),
                 ),
@@ -596,7 +588,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
               border: Border.all(color: const Color(0xFFE2E8F0)),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.08),
+                  color: Colors.black.withValues(alpha: 0.08),
                   blurRadius: 12,
                   offset: const Offset(0, 4),
                 ),

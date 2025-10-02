@@ -178,7 +178,7 @@ class _EmergencyContactsScreenState extends State<EmergencyContactsScreen> {
         border: Border.all(color: const Color(0xFFE2E8F0)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.03),
+            color: Colors.black.withValues(alpha: 0.03),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),
@@ -354,7 +354,7 @@ class _EmergencyContactsScreenState extends State<EmergencyContactsScreen> {
               borderRadius: BorderRadius.circular(8),
               boxShadow: [
                 BoxShadow(
-                  color: const Color(0xFF1E40AF).withOpacity(0.3),
+                  color: const Color(0xFF1E40AF).withValues(alpha: 0.3),
                   blurRadius: 12,
                   offset: const Offset(0, 4),
                 ),
@@ -418,7 +418,7 @@ class _EmergencyContactsScreenState extends State<EmergencyContactsScreen> {
                 borderRadius: BorderRadius.circular(16),
                 boxShadow: [
                   BoxShadow(
-                    color: const Color(0xFF1E40AF).withOpacity(0.4),
+                    color: const Color(0xFF1E40AF).withValues(alpha: 0.4),
                     blurRadius: 12,
                     offset: const Offset(0, 4),
                   ),
