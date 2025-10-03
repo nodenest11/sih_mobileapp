@@ -5,8 +5,11 @@ import 'dart:async';
 import 'dart:math' as math;
 import '../models/tourist.dart';
 import '../models/geospatial_heat.dart';
+import '../models/alert.dart';
 import '../services/api_service.dart';
 import '../services/location_service.dart';
+import '../services/proximity_alert_service.dart';
+import '../services/geofencing_service.dart';
 import '../utils/logger.dart';
 import '../widgets/zone_dots_layer.dart';
 import '../widgets/panic_alert_pulse_layer.dart';
@@ -28,6 +31,8 @@ class _MapScreenState extends State<MapScreen> {
   final MapController _mapController = MapController();
   final ApiService _apiService = ApiService();
   final LocationService _locationService = LocationService();
+  final ProximityAlertService _proximityAlertService = ProximityAlertService.instance;
+  final GeofencingService _geofencingService = GeofencingService.instance;
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
   
@@ -54,10 +59,17 @@ class _MapScreenState extends State<MapScreen> {
   GeospatialHeatPoint? _selectedZone;
   bool _showZoneInfo = false;
   
+  // Restricted zones state
+  List<RestrictedZone> _restrictedZones = [];
+  bool _showRestrictedZones = true;
+  StreamSubscription<GeofenceEvent>? _geofenceSubscription;
+  
   // Panic alert monitoring
   List<GeospatialHeatPoint> _recentPanicAlerts = [];
   Timer? _panicAlertMonitor;
   GeospatialHeatPoint? _nearestPanicAlert;
+  StreamSubscription<ProximityAlertEvent>? _proximityAlertSubscription;
+  int _activeProximityAlerts = 0;
   
   Timer? _searchDebounce;
 
@@ -73,6 +85,8 @@ class _MapScreenState extends State<MapScreen> {
     _searchFocusNode.dispose();
     _searchDebounce?.cancel();
     _panicAlertMonitor?.cancel();
+    _proximityAlertSubscription?.cancel();
+    _geofenceSubscription?.cancel();
     super.dispose();
   }
 
@@ -81,13 +95,106 @@ class _MapScreenState extends State<MapScreen> {
     
     await _getCurrentLocation();
     await _loadHeatmapData();
+    await _loadRestrictedZones();
     _listenToLocationUpdates();
     _startPanicAlertMonitoring();
+    _listenToProximityAlerts();
+    _listenToGeofenceEvents();
     
     // Do immediate initial check for panic alerts (don't wait 30 seconds)
     await _checkForNearbyPanicAlerts();
     
     setState(() => _isLoading = false);
+  }
+
+  /// Load restricted zones from geofencing service
+  Future<void> _loadRestrictedZones() async {
+    try {
+      // Ensure geofencing service is initialized
+      await _geofencingService.initialize();
+      setState(() {
+        _restrictedZones = _geofencingService.restrictedZones;
+      });
+      AppLogger.info('📍 Loaded ${_restrictedZones.length} restricted zones for map display');
+    } catch (e) {
+      AppLogger.error('Failed to load restricted zones: $e');
+    }
+  }
+
+  /// Listen to geofence events for real-time zone alerts
+  void _listenToGeofenceEvents() {
+    _geofenceSubscription = _geofencingService.events.listen((event) {
+      if (!mounted) return;
+      
+      // Show visual feedback when entering/exiting zones
+      if (event.eventType == GeofenceEventType.enter) {
+        _showGeofenceEntryAlert(event.zone);
+      }
+      
+      AppLogger.warning('🚧 Geofence ${event.eventType.name}: ${event.zone.name}');
+    });
+    
+    AppLogger.service('🗺️ Listening to geofence events');
+  }
+
+  /// Show alert when entering restricted zone
+  void _showGeofenceEntryAlert(RestrictedZone zone) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const Icon(Icons.warning_amber_rounded, color: Colors.white, size: 24),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    '⚠️ ${zone.name}',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    zone.description,
+                    style: const TextStyle(fontSize: 13),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        backgroundColor: Colors.orange.shade700,
+        duration: const Duration(seconds: 6),
+        behavior: SnackBarBehavior.floating,
+        action: SnackBarAction(
+          label: 'OK',
+          textColor: Colors.white,
+          onPressed: () {},
+        ),
+      ),
+    );
+  }
+
+  /// Listen to real-time proximity alerts from the service
+  void _listenToProximityAlerts() {
+    _proximityAlertSubscription = _proximityAlertService.events.listen((event) {
+      if (!mounted) return;
+      
+      setState(() {
+        _activeProximityAlerts = _proximityAlertService.activeAlertsCount;
+      });
+      
+      // Auto-refresh panic alerts on map when new ones detected
+      _checkForNearbyPanicAlerts();
+      
+      AppLogger.info('🗺️ Map updated with real-time proximity alert: ${event.title}');
+    });
+    
+    AppLogger.service('📡 Listening to real-time proximity alerts on map');
   }
 
   Future<void> _getCurrentLocation() async {
@@ -513,11 +620,184 @@ class _MapScreenState extends State<MapScreen> {
     }
   }
 
+  /// Show panic alert details dialog
+  void _showPanicAlertDetails(GeospatialHeatPoint alert, double distance) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.red.shade100,
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.emergency, color: Colors.red, size: 24),
+            ),
+            const SizedBox(width: 12),
+            const Expanded(
+              child: Text(
+                '🚨 Emergency Alert',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildAlertDetailRow(
+              Icons.location_on,
+              'Distance',
+              '${distance.toStringAsFixed(2)} km away',
+              Colors.red,
+            ),
+            const SizedBox(height: 12),
+            _buildAlertDetailRow(
+              Icons.access_time,
+              'Status',
+              'Unresolved emergency',
+              Colors.orange,
+            ),
+            const SizedBox(height: 12),
+            _buildAlertDetailRow(
+              Icons.info_outline,
+              'Coordinates',
+              '${alert.latitude.toStringAsFixed(4)}, ${alert.longitude.toStringAsFixed(4)}',
+              Colors.blue,
+            ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.red.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.red.shade200),
+              ),
+              child: const Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '⚠️ Safety Advisory',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.red,
+                    ),
+                  ),
+                  SizedBox(height: 8),
+                  Text(
+                    '• Avoid this area if possible\n'
+                    '• Stay alert and aware\n'
+                    '• Keep emergency contacts ready\n'
+                    '• Report suspicious activity',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('CLOSE'),
+          ),
+          ElevatedButton.icon(
+            onPressed: () {
+              Navigator.pop(context);
+              _mapController.move(
+                LatLng(alert.latitude, alert.longitude),
+                16.0,
+              );
+            },
+            icon: const Icon(Icons.zoom_in),
+            label: const Text('CENTER ON MAP'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAlertDetailRow(IconData icon, String label, String value, Color color) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 20, color: color),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.grey[600],
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                value,
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Safety Map'),
+        title: Row(
+          children: [
+            const Text('Safety Map'),
+            if (_recentPanicAlerts.isNotEmpty) ...[
+              const SizedBox(width: 12),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.red,
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.red.withValues(alpha: 0.3),
+                      blurRadius: 4,
+                      spreadRadius: 1,
+                    ),
+                  ],
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.emergency, size: 14, color: Colors.white),
+                    const SizedBox(width: 4),
+                    Text(
+                      '${_recentPanicAlerts.length}',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
         backgroundColor: Colors.white,
         foregroundColor: const Color(0xFF0F172A),
         elevation: 0,
@@ -530,6 +810,17 @@ class _MapScreenState extends State<MapScreen> {
             tooltip: _showHeatmap ? 'Hide Zones' : 'Show Zones',
             onPressed: () {
               setState(() => _showHeatmap = !_showHeatmap);
+            },
+          ),
+          // Toggle restricted zones
+          IconButton(
+            icon: Icon(
+              _showRestrictedZones ? Icons.shield : Icons.shield_outlined,
+              color: _showRestrictedZones ? Colors.orange : null,
+            ),
+            tooltip: _showRestrictedZones ? 'Hide Restricted Zones' : 'Show Restricted Zones',
+            onPressed: () {
+              setState(() => _showRestrictedZones = !_showRestrictedZones);
             },
           ),
           // Recenter to current location
@@ -595,6 +886,42 @@ class _MapScreenState extends State<MapScreen> {
                         onZoneTap: _handleZoneTap,
                       ),
                     
+                    // Restricted zones layer (polygons with warning colors)
+                    if (_showRestrictedZones && _restrictedZones.isNotEmpty)
+                      PolygonLayer(
+                        polygons: _restrictedZones.map((zone) {
+                          final color = zone.type == ZoneType.dangerous
+                              ? Colors.red.withValues(alpha: 0.2)
+                              : zone.type == ZoneType.highRisk
+                                  ? Colors.orange.withValues(alpha: 0.2)
+                                  : zone.type == ZoneType.restricted
+                                      ? Colors.yellow.withValues(alpha: 0.2)
+                                      : Colors.blue.withValues(alpha: 0.1);
+                          
+                          final borderColor = zone.type == ZoneType.dangerous
+                              ? Colors.red
+                              : zone.type == ZoneType.highRisk
+                                  ? Colors.orange
+                                  : zone.type == ZoneType.restricted
+                                      ? Colors.yellow.shade700
+                                      : Colors.blue;
+                          
+                          return Polygon(
+                            points: zone.polygonCoordinates,
+                            color: color,
+                            borderColor: borderColor,
+                            borderStrokeWidth: 2.0,
+                            label: zone.name,
+                            labelStyle: TextStyle(
+                              color: borderColor,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 10,
+                              backgroundColor: Colors.white.withValues(alpha: 0.7),
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                    
                     // Panic alert pulse layer (real-time emergency alerts with animation)
                     if (_recentPanicAlerts.isNotEmpty)
                       StreamBuilder<MapEvent>(
@@ -637,6 +964,70 @@ class _MapScreenState extends State<MapScreen> {
                               ),
                             ),
                           ),
+                        
+                        // Panic Alert Markers (Real-time emergency locations)
+                        ..._recentPanicAlerts.map((alert) {
+                          final distance = _currentLocation != null
+                              ? _calculateDistance(
+                                  _currentLocation!.latitude,
+                                  _currentLocation!.longitude,
+                                  alert.latitude,
+                                  alert.longitude,
+                                )
+                              : 0.0;
+                          
+                          return Marker(
+                            point: LatLng(alert.latitude, alert.longitude),
+                            width: 60,
+                            height: 80,
+                            child: GestureDetector(
+                              onTap: () => _showPanicAlertDetails(alert, distance),
+                              child: Column(
+                                children: [
+                                  // Distance badge
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: Colors.red.shade700,
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                    child: Text(
+                                      '${distance.toStringAsFixed(1)}km',
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  // Alert icon
+                                  Container(
+                                    width: 36,
+                                    height: 36,
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: Colors.red,
+                                      border: Border.all(color: Colors.white, width: 2),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: Colors.red.withValues(alpha: 0.5),
+                                          blurRadius: 8,
+                                          spreadRadius: 2,
+                                        ),
+                                      ],
+                                    ),
+                                    child: const Icon(
+                                      Icons.emergency,
+                                      color: Colors.white,
+                                      size: 20,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        }),
                         
                         // Searched location marker
                         if (_searchedLocation != null)

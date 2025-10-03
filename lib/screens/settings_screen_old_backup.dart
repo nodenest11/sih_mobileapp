@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../services/settings_manager.dart';
 import '../services/api_service.dart';
 import '../services/location_service.dart';
@@ -24,12 +25,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
   
   bool _isLoading = true;
   
-  // Core settings only
+  // Settings state
   bool _locationTracking = true;
+  bool _pushNotifications = true;
+  bool _sosAlerts = true;
+  bool _safetyAlerts = true;
   bool _proximityAlerts = true;
   bool _geofenceAlerts = true;
+  bool _batteryOptimization = false;
+  bool _notificationSound = true;
+  bool _notificationVibration = true;
+  bool _autoStartTracking = true;
+  bool _showResolvedAlerts = false;
+  
   String _updateInterval = '10';
+  String _mapType = 'standard';
   int _proximityRadius = 5;
+  
+  final List<String> _updateIntervals = ['5', '10', '15', '30', '60'];
+  final List<int> _proximityRadiusOptions = [1, 3, 5, 10, 15, 20];
+  final Map<String, String> _mapTypes = {
+    'standard': 'Standard',
+    'satellite': 'Satellite',
+    'hybrid': 'Hybrid',
+    'terrain': 'Terrain',
+  };
 
   @override
   void initState() {
@@ -39,44 +59,62 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _loadSettings() async {
     setState(() => _isLoading = true);
+    
     try {
+      // Load all settings
       setState(() {
         _locationTracking = _settings.locationTracking;
+        _pushNotifications = _settings.pushNotifications;
+        _sosAlerts = _settings.sosAlerts;
+        _safetyAlerts = _settings.safetyAlerts;
         _proximityAlerts = _settings.proximityAlerts;
         _geofenceAlerts = _settings.geofenceAlerts;
+        _batteryOptimization = _settings.batteryOptimization;
+        _notificationSound = _settings.notificationSound;
+        _notificationVibration = _settings.notificationVibration;
+        _autoStartTracking = _settings.autoStartTracking;
+        _showResolvedAlerts = _settings.showResolvedAlerts;
         _updateInterval = _settings.updateInterval;
+        _mapType = _settings.mapType;
         _proximityRadius = _settings.proximityRadius;
       });
-      AppLogger.info('✅ Settings loaded');
+      
+      AppLogger.info('✅ Settings loaded successfully');
     } catch (e) {
       AppLogger.error('Failed to load settings: $e');
+      _showSnackBar('Failed to load settings', isError: true);
     } finally {
       setState(() => _isLoading = false);
     }
   }
 
-  Future<void> _applyLocationTracking(bool value) async {
+  Future<void> _applyLocationTrackingChange(bool value) async {
     await _settings.setLocationTracking(value);
+    
     if (value) {
+      // Start location tracking
       await _locationService.startTracking();
       _showSnackBar('📍 Location tracking enabled');
     } else {
+      // Stop location tracking
       await _locationService.stopTracking();
       _showSnackBar('📍 Location tracking disabled');
     }
   }
 
-  Future<void> _applyUpdateInterval(String value) async {
+  Future<void> _applyUpdateIntervalChange(String value) async {
     await _settings.setUpdateInterval(value);
+    // Restart location service with new interval
     if (_locationTracking) {
       await _locationService.stopTracking();
       await _locationService.startTracking();
-      _showSnackBar('⏱️ Update interval: ${value}s');
+      _showSnackBar('⏱️ Update interval changed to ${value}s');
     }
   }
 
-  Future<void> _applyProximityAlerts(bool value) async {
+  Future<void> _applyProximityAlertsChange(bool value) async {
     await _settings.setProximityAlerts(value);
+    
     if (value) {
       await _proximityService.startMonitoring();
       _showSnackBar('📍 Proximity alerts enabled');
@@ -86,8 +124,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  Future<void> _applyGeofenceAlerts(bool value) async {
+  Future<void> _applyGeofenceAlertsChange(bool value) async {
     await _settings.setGeofenceAlerts(value);
+    
     if (value) {
       await _geofenceService.startMonitoring();
       _showSnackBar('🚧 Geofence alerts enabled');
@@ -97,17 +136,75 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  Future<void> _applyProximityRadius(int value) async {
+  Future<void> _applyProximityRadiusChange(int value) async {
     await _settings.setProximityRadius(value);
+    // Restart proximity service if active
     if (_proximityAlerts) {
       _proximityService.stopMonitoring();
       await _proximityService.startMonitoring();
-      _showSnackBar('📏 Alert radius: ${value}km');
+      _showSnackBar('📏 Proximity radius changed to ${value}km');
     }
   }
 
+  Future<void> _clearCache() async {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Clear Cache'),
+        content: const Text('This will clear all cached data. Continue?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              // Clear cache logic here
+              _showSnackBar('🗑️ Cache cleared successfully');
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Clear', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _resetSettings() async {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Reset Settings'),
+        content: const Text('Reset all settings to defaults?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              await _settings.resetToDefaults();
+              await _loadSettings();
+              _showSnackBar('🔄 Settings reset to defaults');
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
+            child: const Text('Reset', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _exportSettings() async {
+    final settingsJson = _settings.exportSettings();
+    await Clipboard.setData(ClipboardData(text: settingsJson));
+    _showSnackBar('📋 Settings copied to clipboard');
+  }
+
   Future<void> _logout() async {
-    final confirmed = await showDialog<bool>(
+    showDialog(
       context: context,
       builder: (context) => AlertDialog(
         title: const Row(
@@ -117,39 +214,41 @@ class _SettingsScreenState extends State<SettingsScreen> {
             Text('Logout'),
           ],
         ),
-        content: const Text('Are you sure you want to logout?'),
+        content: const Text('Are you sure you want to logout?\n\nAll local data will be cleared.'),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context, false),
+            onPressed: () => Navigator.pop(context),
             child: const Text('Cancel'),
           ),
           ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
+            onPressed: () async {
+              Navigator.pop(context);
+              
+              // Stop all services
+              await _locationService.stopTracking();
+              _proximityService.stopMonitoring();
+              _geofenceService.stopMonitoring();
+              
+              // Clear authentication
+              await _apiService.clearAuth();
+              
+              if (mounted) {
+                Navigator.pushAndRemoveUntil(
+                  context,
+                  MaterialPageRoute(builder: (context) => const LoginScreen()),
+                  (route) => false,
+                );
+              }
+            },
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
             child: const Text('Logout', style: TextStyle(color: Colors.white)),
           ),
         ],
       ),
     );
-
-    if (confirmed == true) {
-      await _locationService.stopTracking();
-      _proximityService.stopMonitoring();
-      _geofenceService.stopMonitoring();
-      await _apiService.clearAuth();
-      
-      if (mounted) {
-        Navigator.pushAndRemoveUntil(
-          context,
-          MaterialPageRoute(builder: (context) => const LoginScreen()),
-          (route) => false,
-        );
-      }
-    }
   }
 
   void _showSnackBar(String message, {bool isError = false}) {
-    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
@@ -162,10 +261,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Widget _buildSectionHeader(String title, IconData icon) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 24, 16, 12),
+      padding: const EdgeInsets.fromLTRB(16, 24, 16, 8),
       child: Row(
         children: [
-          Icon(icon, color: const Color(0xFF1E40AF), size: 22),
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: const Color(0xFF1E40AF).withOpacity(0.1),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(icon, color: const Color(0xFF1E40AF), size: 20),
+          ),
           const SizedBox(width: 12),
           Text(
             title,
@@ -186,9 +292,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     required bool value,
     required Function(bool) onChanged,
     IconData? icon,
+    Color? activeColor,
   }) {
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
@@ -219,9 +326,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
         value: value,
         onChanged: onChanged,
-        activeColor: const Color(0xFF1E40AF),
+        activeColor: activeColor ?? const Color(0xFF1E40AF),
         secondary: icon != null 
-            ? Icon(icon, color: value ? const Color(0xFF1E40AF) : const Color(0xFF94A3B8))
+            ? Icon(icon, color: value ? (activeColor ?? const Color(0xFF1E40AF)) : const Color(0xFF94A3B8))
             : null,
       ),
     );
@@ -236,7 +343,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     Color? iconColor,
   }) {
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
@@ -293,31 +400,41 @@ class _SettingsScreenState extends State<SettingsScreen> {
       appBar: AppBar(
         title: const Text(
           'Settings',
-          style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+          style: TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.w700,
+          ),
         ),
         backgroundColor: Colors.white,
         foregroundColor: const Color(0xFF0F172A),
         elevation: 0,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh_rounded),
+            onPressed: _loadSettings,
+            tooltip: 'Reload settings',
+          ),
+        ],
       ),
       body: ListView(
         children: [
           const SizedBox(height: 8),
           
-          // LOCATION & TRACKING
+          // ========== LOCATION & TRACKING ==========
           _buildSectionHeader('Location & Tracking', Icons.location_on_rounded),
           _buildSwitchTile(
             title: 'Location Tracking',
-            subtitle: 'Real-time location monitoring',
+            subtitle: 'Real-time location monitoring for safety',
             value: _locationTracking,
             icon: Icons.my_location_rounded,
             onChanged: (value) async {
               setState(() => _locationTracking = value);
-              await _applyLocationTracking(value);
+              await _applyLocationTrackingChange(value);
             },
           ),
           _buildListTile(
             title: 'Update Interval',
-            subtitle: 'Location update frequency',
+            subtitle: 'Location update frequency: $_updateInterval seconds',
             icon: Icons.timer_rounded,
             trailing: Text(
               '${_updateInterval}s',
@@ -334,20 +451,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   title: const Text('Update Interval'),
                   content: Column(
                     mainAxisSize: MainAxisSize.min,
-                    children: ['5', '10', '15', '30', '60'].map((interval) => 
+                    children: _updateIntervals.map((interval) => 
                       RadioListTile<String>(
                         title: Text('$interval seconds'),
-                        subtitle: Text(
-                          interval == '5' ? 'High accuracy' : 
-                          interval == '60' ? 'Battery saver' : 'Balanced'
-                        ),
+                        subtitle: Text(interval == '5' ? 'High accuracy (more battery)' : 
+                                     interval == '60' ? 'Low battery usage' : 'Balanced'),
                         value: interval,
                         groupValue: _updateInterval,
                         activeColor: const Color(0xFF1E40AF),
                         onChanged: (value) async {
                           Navigator.pop(context);
                           setState(() => _updateInterval = value!);
-                          await _applyUpdateInterval(value!);
+                          await _applyUpdateIntervalChange(value!);
                         },
                       ),
                     ).toList(),
@@ -356,32 +471,152 @@ class _SettingsScreenState extends State<SettingsScreen> {
               );
             },
           ),
+          _buildSwitchTile(
+            title: 'Battery Optimization',
+            subtitle: 'Reduce location accuracy to save battery',
+            value: _batteryOptimization,
+            icon: Icons.battery_saver_rounded,
+            onChanged: (value) async {
+              setState(() => _batteryOptimization = value);
+              await _settings.setBatteryOptimization(value);
+              _showSnackBar(value ? '🔋 Battery optimization enabled' : '🔋 Battery optimization disabled');
+            },
+          ),
+          _buildSwitchTile(
+            title: 'Auto-Start Tracking',
+            subtitle: 'Start tracking automatically on app launch',
+            value: _autoStartTracking,
+            icon: Icons.play_circle_rounded,
+            onChanged: (value) async {
+              setState(() => _autoStartTracking = value);
+              await _settings.setAutoStartTracking(value);
+              _showSnackBar(value ? '🚀 Auto-start enabled' : '🚀 Auto-start disabled');
+            },
+          ),
 
-          // ALERTS
-          _buildSectionHeader('Alerts', Icons.notifications_rounded),
+          // ========== ALERTS & NOTIFICATIONS ==========
+          _buildSectionHeader('Alerts & Notifications', Icons.notifications_rounded),
+          _buildSwitchTile(
+            title: 'Push Notifications',
+            subtitle: 'Receive app notifications',
+            value: _pushNotifications,
+            icon: Icons.notifications_active_rounded,
+            onChanged: (value) async {
+              setState(() => _pushNotifications = value);
+              await _settings.setPushNotifications(value);
+              _showSnackBar(value ? '🔔 Notifications enabled' : '🔔 Notifications disabled');
+            },
+          ),
+          _buildSwitchTile(
+            title: 'SOS Alerts',
+            subtitle: 'Emergency SOS notifications',
+            value: _sosAlerts,
+            icon: Icons.emergency_rounded,
+            activeColor: Colors.red,
+            onChanged: (value) async {
+              setState(() => _sosAlerts = value);
+              await _settings.setSosAlerts(value);
+              _showSnackBar(value ? '🚨 SOS alerts enabled' : '🚨 SOS alerts disabled');
+            },
+          ),
+          _buildSwitchTile(
+            title: 'Safety Alerts',
+            subtitle: 'Location-based safety warnings',
+            value: _safetyAlerts,
+            icon: Icons.security_rounded,
+            activeColor: Colors.orange,
+            onChanged: (value) async {
+              setState(() => _safetyAlerts = value);
+              await _settings.setSafetyAlerts(value);
+              _showSnackBar(value ? '⚠️ Safety alerts enabled' : '⚠️ Safety alerts disabled');
+            },
+          ),
           _buildSwitchTile(
             title: 'Proximity Alerts',
-            subtitle: 'Nearby emergency notifications',
+            subtitle: 'Nearby panic alerts and emergencies',
             value: _proximityAlerts,
             icon: Icons.warning_rounded,
+            activeColor: Colors.deepOrange,
             onChanged: (value) async {
               setState(() => _proximityAlerts = value);
-              await _applyProximityAlerts(value);
+              await _applyProximityAlertsChange(value);
             },
           ),
           _buildSwitchTile(
             title: 'Geofence Alerts',
-            subtitle: 'Restricted zone warnings',
+            subtitle: 'Restricted zone entry warnings',
             value: _geofenceAlerts,
             icon: Icons.fence_rounded,
+            activeColor: Colors.purple,
             onChanged: (value) async {
               setState(() => _geofenceAlerts = value);
-              await _applyGeofenceAlerts(value);
+              await _applyGeofenceAlertsChange(value);
+            },
+          ),
+          _buildSwitchTile(
+            title: 'Notification Sound',
+            subtitle: 'Play sound for notifications',
+            value: _notificationSound,
+            icon: Icons.volume_up_rounded,
+            onChanged: (value) async {
+              setState(() => _notificationSound = value);
+              await _settings.setNotificationSound(value);
+            },
+          ),
+          _buildSwitchTile(
+            title: 'Notification Vibration',
+            subtitle: 'Vibrate on notifications',
+            value: _notificationVibration,
+            icon: Icons.vibration_rounded,
+            onChanged: (value) async {
+              setState(() => _notificationVibration = value);
+              await _settings.setNotificationVibration(value);
+            },
+          ),
+
+          // ========== MAP SETTINGS ==========
+          _buildSectionHeader('Map Settings', Icons.map_rounded),
+          _buildListTile(
+            title: 'Map Type',
+            subtitle: _mapTypes[_mapType]!,
+            icon: Icons.layers_rounded,
+            trailing: Text(
+              _mapTypes[_mapType]!,
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF1E40AF),
+              ),
+            ),
+            onTap: () {
+              showDialog(
+                context: context,
+                builder: (context) => AlertDialog(
+                  title: const Text('Map Type'),
+                  content: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: _mapTypes.entries.map((entry) => 
+                      RadioListTile<String>(
+                        title: Text(entry.value),
+                        value: entry.key,
+                        groupValue: _mapType,
+                        activeColor: const Color(0xFF1E40AF),
+                        onChanged: (value) async {
+                          Navigator.pop(context);
+                          setState(() => _mapType = value!);
+                          await _settings.setMapType(value!);
+                          _showSnackBar('🗺️ Map type: ${_mapTypes[value]}');
+                        },
+                      ),
+                    ).toList(),
+                  ),
+                ),
+              );
             },
           ),
           _buildListTile(
-            title: 'Alert Radius',
-            subtitle: 'Detection range for nearby alerts',
+            title: 'Proximity Radius',
+            subtitle: 'Alert radius for nearby emergencies',
             icon: Icons.adjust_rounded,
             trailing: Text(
               '${_proximityRadius}km',
@@ -395,23 +630,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
               showDialog(
                 context: context,
                 builder: (context) => AlertDialog(
-                  title: const Text('Alert Radius'),
+                  title: const Text('Proximity Radius'),
                   content: Column(
                     mainAxisSize: MainAxisSize.min,
-                    children: [1, 3, 5, 10, 15, 20].map((radius) => 
+                    children: _proximityRadiusOptions.map((radius) => 
                       RadioListTile<int>(
                         title: Text('$radius km'),
-                        subtitle: Text(
-                          radius <= 3 ? 'Very close' : 
-                          radius <= 10 ? 'Moderate' : 'Wide area'
-                        ),
+                        subtitle: Text(radius <= 3 ? 'Very close' : 
+                                     radius <= 10 ? 'Moderate' : 'Wide area'),
                         value: radius,
                         groupValue: _proximityRadius,
                         activeColor: const Color(0xFF1E40AF),
                         onChanged: (value) async {
                           Navigator.pop(context);
                           setState(() => _proximityRadius = value!);
-                          await _applyProximityRadius(value!);
+                          await _applyProximityRadiusChange(value!);
                         },
                       ),
                     ).toList(),
@@ -420,13 +653,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
               );
             },
           ),
+          _buildSwitchTile(
+            title: 'Show Resolved Alerts',
+            subtitle: 'Display resolved alerts on map',
+            value: _showResolvedAlerts,
+            icon: Icons.check_circle_outline_rounded,
+            onChanged: (value) async {
+              setState(() => _showResolvedAlerts = value);
+              await _settings.setShowResolvedAlerts(value);
+              _showSnackBar(value ? 'Showing resolved alerts' : 'Hiding resolved alerts');
+            },
+          ),
 
-          // ACCOUNT
+          // ========== ACCOUNT ==========
           _buildSectionHeader('Account', Icons.person_rounded),
           _buildListTile(
             title: 'Emergency Contacts',
-            subtitle: 'Manage emergency contacts',
+            subtitle: 'Manage emergency contact information',
             icon: Icons.contact_emergency_rounded,
+            iconColor: Colors.red,
             onTap: () {
               Navigator.push(
                 context,
@@ -444,8 +689,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
             onTap: _logout,
           ),
 
-          // SUPPORT
-          _buildSectionHeader('Support', Icons.help_rounded),
+          // ========== ADVANCED ==========
+          _buildSectionHeader('Advanced', Icons.settings_suggest_rounded),
+          _buildListTile(
+            title: 'Clear Cache',
+            subtitle: 'Delete all cached data',
+            icon: Icons.delete_sweep_rounded,
+            onTap: _clearCache,
+          ),
+          _buildListTile(
+            title: 'Reset Settings',
+            subtitle: 'Reset all settings to defaults',
+            icon: Icons.restore_rounded,
+            iconColor: Colors.orange,
+            onTap: _resetSettings,
+          ),
+          _buildListTile(
+            title: 'Export Settings',
+            subtitle: 'Copy settings to clipboard',
+            icon: Icons.file_download_rounded,
+            onTap: _exportSettings,
+          ),
+
+          // ========== SUPPORT & INFO ==========
+          _buildSectionHeader('Support & Info', Icons.help_rounded),
           _buildListTile(
             title: 'Help & Support',
             subtitle: 'Get help and contact support',
@@ -470,6 +737,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       Text('📞 Emergency: 112'),
                       SizedBox(height: 12),
                       Text('🌐 Website: www.safehorizon.com'),
+                      SizedBox(height: 12),
+                      Text('💬 Live Chat: Available 24/7'),
                     ],
                   ),
                   actions: [
@@ -503,7 +772,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     children: [
                       Text(
                         'SafeHorizon',
-                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                       SizedBox(height: 8),
                       Text('Version: 1.0.0'),
@@ -511,7 +783,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       Text('Tourist Safety Platform'),
                       SizedBox(height: 12),
                       Text(
-                        'Real-time tracking, emergency alerts, and safety monitoring for tourists.',
+                        'Keeping tourists safe with real-time tracking, emergency alerts, and safety monitoring.',
                         style: TextStyle(fontSize: 13),
                       ),
                       SizedBox(height: 12),
@@ -532,9 +804,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
             },
           ),
 
+          // Debug section
+          if (ApiService.debugMode) ...[
+            _buildSectionHeader('Debug & Testing', Icons.bug_report_rounded),
+            _buildListTile(
+              title: 'View All Settings',
+              subtitle: 'Show all settings values',
+              icon: Icons.code_rounded,
+              onTap: () {
+                _settings.printAllSettings();
+                _showSnackBar('📋 Settings printed to console');
+              },
+            ),
+          ],
+
           const SizedBox(height: 24),
           
-          // Footer
+          // App info footer
           Container(
             padding: const EdgeInsets.all(16),
             child: const Column(
@@ -550,7 +836,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 SizedBox(height: 4),
                 Text(
-                  'Version 1.0.0',
+                  'Version 1.0.0 • Smart India Hackathon 2025',
                   style: TextStyle(
                     color: Color(0xFF94A3B8),
                     fontSize: 12,

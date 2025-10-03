@@ -1274,7 +1274,8 @@ class ApiService {
   }) async {
     try {
       // PUBLIC ENDPOINT - No authentication required
-      final endpoint = '/notify/public/panic-alerts';
+      // Correct endpoint: /api/public/panic-alerts (not /notify/public/panic-alerts)
+      final endpoint = '/public/panic-alerts';
       
       final uri = Uri.parse('$baseUrl$apiPrefix$endpoint').replace(
         queryParameters: {
@@ -1284,6 +1285,7 @@ class ApiService {
       );
       
       AppLogger.info('📡 Fetching public panic alerts (no auth required)');
+      AppLogger.info('📡 Request URL: $uri');
       
       // Use client.get WITHOUT authentication headers
       final response = await client.get(uri).timeout(timeout);
@@ -1298,20 +1300,28 @@ class ApiService {
         
         // Convert to map format for easier use
         return alerts.map<Map<String, dynamic>>((alert) {
+          // Handle null location gracefully
+          Map<String, dynamic>? locationData;
+          if (alert['location'] != null) {
+            locationData = {
+              'lat': alert['location']['lat'],
+              'lon': alert['location']['lon'],
+              'timestamp': alert['location']['timestamp'],
+            };
+          }
+          
           return {
             'alert_id': alert['alert_id'],
             'type': alert['type'],
             'severity': alert['severity'],
             'title': alert['title'],
             'description': alert['description'],
-            'location': {
-              'lat': alert['location']['lat'],
-              'lon': alert['location']['lon'],
-              'timestamp': alert['location']['timestamp'],
-            },
+            'location': locationData,
             'timestamp': alert['timestamp'],
             'time_ago': alert['time_ago'],
             'status': alert['status'], // 'active' (<1hr) or 'older' (1-24hr)
+            'resolved': alert['resolved'] ?? false,
+            'resolved_at': alert['resolved_at'],
           };
         }).toList();
       }

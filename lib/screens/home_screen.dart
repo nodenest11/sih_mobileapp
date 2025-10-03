@@ -8,13 +8,14 @@ import '../services/api_service.dart';
 import '../services/location_service.dart';
 import '../services/panic_service.dart';
 import '../services/geofencing_service.dart';
+import '../services/proximity_alert_service.dart';
 import '../services/safety_score_manager.dart';
 import '../utils/logger.dart';
-// import 'panic_result_screen.dart'; // No longer needed directly; result navigation handled via countdown screen
-import 'panic_countdown_screen.dart';
 import 'notification_screen.dart';
+import 'map_screen.dart';
 import '../widgets/safety_score_widget.dart';
 import '../widgets/geofence_alert.dart';
+import '../widgets/proximity_alert_widget.dart';
 import 'location_history_screen.dart';
 import 'emergency_contacts_screen.dart';
 import 'efir_form_screen.dart';
@@ -38,9 +39,11 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
   final LocationService _locationService = LocationService();
   final PanicService _panicService = PanicService();
   final GeofencingService _geofencingService = GeofencingService.instance;
+  final ProximityAlertService _proximityAlertService = ProximityAlertService.instance;
   
   SafetyScore? _safetyScore;
   List<Alert> _alerts = [];
+  List<ProximityAlertEvent> _proximityAlerts = [];
   bool _isLoadingSafetyScore = false;
   bool _safetyScoreOfflineMode = false;
   int _safetyScoreRetryCount = 0;
@@ -50,9 +53,7 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
   bool _isLoadingLocation = false;
   String _locationStatus = 'Your location will be sharing';
   Map<String, dynamic>? _currentLocationInfo;
-  bool _panicCooldownActive = false;
-  Duration _panicRemaining = Duration.zero;
-  Timer? _panicTimer;
+  // Cooldown removed - users can send SOS anytime
 
   @override
   void initState() {
@@ -69,14 +70,15 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
     _loadAlerts();
     _getCurrentLocation();
     _initializeGeofencing();
+    _initializeProximityAlerts();
   }
 
   @override
   void dispose() {
-    _panicTimer?.cancel();
     _safetyScoreRefreshTimer?.cancel();
     _locationService.dispose();
     _geofencingService.stopMonitoring();
+    _proximityAlertService.stopMonitoring();
     super.dispose();
   }
 
@@ -116,22 +118,6 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
         });
       }
     });
-    _initPanicCooldownWatcher();
-  }
-
-  Future<void> _initPanicCooldownWatcher() async {
-    // Initialize cooldown state
-    final cooling = await _panicService.isCoolingDown();
-    if (cooling) {
-      final remaining = await _panicService.remaining();
-      if (mounted) {
-        setState(() {
-          _panicCooldownActive = true;
-          _panicRemaining = remaining;
-        });
-      }
-      _startPanicTicker();
-    }
   }
 
   Future<void> _initializeGeofencing() async {
@@ -146,6 +132,45 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
     });
   }
   
+  Future<void> _initializeProximityAlerts() async {
+    // Initialize and start proximity alert service
+    await _proximityAlertService.initialize();
+    await _proximityAlertService.startMonitoring();
+    
+    // Listen to proximity alert events
+    _proximityAlertService.events.listen((event) {
+      if (mounted) {
+        setState(() {
+          // Add to list if not already present and not resolved
+          final alertId = event.metadata?['alert_id'];
+          final isResolved = event.metadata?['resolved'] == true;
+          
+          // Remove if resolved
+          if (isResolved) {
+            _proximityAlerts.removeWhere((e) => 
+                e.metadata?['alert_id'] == alertId);
+            AppLogger.info('✅ Removed resolved alert from home screen: $alertId');
+          } else if (!_proximityAlerts.any((e) => 
+              e.metadata?['alert_id'] == alertId)) {
+            // Add new unresolved alert
+            _proximityAlerts.insert(0, event);
+            // Keep only last 10 alerts
+            if (_proximityAlerts.length > 10) {
+              _proximityAlerts = _proximityAlerts.sublist(0, 10);
+            }
+          }
+        });
+        
+        // Show dialog for critical alerts (only if not resolved)
+        if (event.severity == 'critical' && event.metadata?['resolved'] != true) {
+          _showProximityAlertDialog(event);
+        }
+      }
+    });
+    
+    AppLogger.service('✅ Proximity alerts monitoring initialized');
+  }
+  
   void _showGeofenceAlert(RestrictedZone zone, GeofenceEventType eventType) {
     showDialog(
       context: context,
@@ -157,22 +182,17 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
     );
   }
 
-  void _startPanicTicker() {
-    _panicTimer?.cancel();
-    _panicTimer = Timer.periodic(const Duration(seconds: 1), (t) async {
-      final remaining = await _panicService.remaining();
-      if (!mounted) return;
-      if (remaining == Duration.zero) {
-        setState(() {
-          _panicCooldownActive = false;
-          _panicRemaining = Duration.zero;
-        });
-        _panicTimer?.cancel();
-      } else {
-        setState(() {
-          _panicCooldownActive = true;
-          _panicRemaining = remaining;
-        });
+  void _showProximityAlertDialog(ProximityAlertEvent event) {
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (context) => ProximityAlertDialog(alert: event),
+    ).then((result) {
+      // If user taps "View on Map", navigate to map screen
+      if (result == 'view_map') {
+        // You can add navigation to map screen here
+        // For now, just log
+        AppLogger.info('User wants to view alert on map');
       }
     });
   }
@@ -446,33 +466,98 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
     });
   }
 
-  // _onPanicSent removed; feedback handled inside countdown/result screens.
-
   Future<void> _handleSOSPress() async {
-    if (_panicCooldownActive) {
-      _showErrorSnackBar('SOS already sent. Try again in ${_panicRemaining.inMinutes}m');
-      return;
-    }
-    
-    // Navigate to countdown screen which will handle sending automatically after grace period.
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => const PanicCountdownScreen(),
+    // Show confirmation dialog
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.emergency, color: Colors.red, size: 28),
+            SizedBox(width: 12),
+            Text('Emergency SOS'),
+          ],
+        ),
+        content: const Text(
+          'Send emergency alert to authorities with your current location?\n\nThis will notify police and emergency contacts immediately.',
+          style: TextStyle(fontSize: 16),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('CANCEL'),
+          ),
+          ElevatedButton.icon(
+            onPressed: () => Navigator.of(context).pop(true),
+            icon: const Icon(Icons.emergency),
+            label: const Text('SEND SOS'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+          ),
+        ],
       ),
-    ).then((_) async {
-      // After returning (either cancelled or sent) refresh cooldown + alerts state
-      final cooling = await _panicService.isCoolingDown();
+    );
+    
+    if (confirmed != true) return;
+    
+    // Show loading indicator
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(
+        child: Card(
+          child: Padding(
+            padding: EdgeInsets.all(24.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(height: 16),
+                Text('Sending emergency alert...'),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    
+    try {
+      // Send panic alert immediately
+      await _panicService.sendPanicAlert();
+      
       if (!mounted) return;
-      if (cooling) {
-        final remaining = await _panicService.remaining();
-        setState(() {
-          _panicCooldownActive = true;
-          _panicRemaining = remaining;
-        });
-        _startPanicTicker();
-        _loadAlerts();
-      }
-    });
+      Navigator.of(context).pop(); // Close loading dialog
+      
+      // Show success
+      _showSuccessSnackBar('✅ Emergency alert sent successfully!');
+      
+      // Reload alerts to show the new one
+      _loadAlerts();
+    } catch (e) {
+      if (!mounted) return;
+      Navigator.of(context).pop(); // Close loading dialog
+      
+      _showErrorSnackBar('Failed to send SOS: ${e.toString()}');
+      AppLogger.error('SOS send failed: $e');
+    }
+  }
+
+  void _showSuccessSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.green,
+        duration: const Duration(seconds: 4),
+        action: SnackBarAction(
+          label: 'OK',
+          textColor: Colors.white,
+          onPressed: () => ScaffoldMessenger.of(context).hideCurrentSnackBar(),
+        ),
+      ),
+    );
   }
 
   void _showErrorSnackBar(String message) {
@@ -623,6 +708,12 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
             if (_alerts.isNotEmpty) ...[
               const SizedBox(height: 16),
               _buildAlertsSection(),
+            ],
+
+            // Proximity Alerts Section (Panic Alerts & Restricted Zones)
+            if (_proximityAlerts.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              _buildProximityAlertsSection(),
             ],
 
             const SizedBox(height: 16),
@@ -1044,6 +1135,196 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
     );
   }
 
+  Widget _buildProximityAlertsSection() {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFFF9800)),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFFFF9800).withValues(alpha: 0.1),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFF9800).withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: const Icon(
+                  Icons.emergency,
+                  size: 16,
+                  color: Color(0xFFFF9800),
+                ),
+              ),
+              const SizedBox(width: 10),
+              const Text(
+                'Nearby Alerts',
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF0F172A),
+                  letterSpacing: 0.2,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFDC2626).withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  '${_proximityAlerts.length}',
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFFDC2626),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFFF9E6),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              children: [
+                const Icon(
+                  Icons.info_outline,
+                  size: 16,
+                  color: Color(0xFFFF9800),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Emergency situations or restricted zones detected near your location',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: Color(0xFF92400E),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          // Display proximity alerts
+          ..._proximityAlerts.take(3).map((alert) => 
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: ProximityAlertWidget(
+                alert: alert,
+                onTap: () => _showProximityAlertDialog(alert),
+                onDismiss: () {
+                  setState(() {
+                    _proximityAlerts.remove(alert);
+                  });
+                },
+              ),
+            ),
+          ),
+          // View on map button
+          if (_proximityAlerts.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () {
+                    // Navigate to map screen
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => MapScreen(tourist: widget.tourist),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.map, size: 18),
+                  label: const Text('View All on Map'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFFF9800),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          // Show "View all" button if more than 3 alerts
+          if (_proximityAlerts.length > 3)
+            Center(
+              child: TextButton(
+                onPressed: _showAllProximityAlertsDialog,
+                child: Text(
+                  'View all ${_proximityAlerts.length} alerts',
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFFFF9800),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  void _showAllProximityAlertsDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('All Nearby Alerts'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: ListView.builder(
+            shrinkWrap: true,
+            itemCount: _proximityAlerts.length,
+            itemBuilder: (context, index) {
+              final alert = _proximityAlerts[index];
+              return ProximityAlertWidget(
+                alert: alert,
+                onTap: () {
+                  Navigator.pop(context);
+                  _showProximityAlertDialog(alert);
+                },
+                onDismiss: () {
+                  setState(() {
+                    _proximityAlerts.removeAt(index);
+                  });
+                  Navigator.pop(context);
+                },
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildAlertItem(Alert alert) {
     final color = _getAlertColor(alert.severity);
     final isUnread = !alert.isAcknowledged;
@@ -1276,28 +1557,18 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
   }
 
   Widget _buildSosSection() {
-    final disabled = _panicCooldownActive;
-    final remainingText = _panicRemaining.inMinutes > 0
-        ? '${_panicRemaining.inMinutes}m'
-        : _panicRemaining.inSeconds > 0
-            ? '${_panicRemaining.inSeconds}s'
-            : 'Ready';
-    
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: disabled
-              ? [const Color(0xFF64748B), const Color(0xFF475569)]
-              : [const Color(0xFFDC2626), const Color(0xFFB91C1C)],
+        gradient: const LinearGradient(
+          colors: [Color(0xFFDC2626), Color(0xFFB91C1C)],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
         borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
-            color: (disabled ? const Color(0xFF64748B) : const Color(0xFFDC2626))
-                .withValues(alpha: 0.3),
+            color: const Color(0xFFDC2626).withValues(alpha: 0.3),
             blurRadius: 12,
             offset: const Offset(0, 4),
           ),
@@ -1306,7 +1577,7 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          onTap: disabled ? null : _handleSOSPress,
+          onTap: _handleSOSPress,
           borderRadius: BorderRadius.circular(12),
           child: Padding(
             padding: const EdgeInsets.all(4),
@@ -1318,8 +1589,8 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
                     color: Colors.white.withValues(alpha: 0.2),
                     borderRadius: BorderRadius.circular(10),
                   ),
-                  child: Icon(
-                    disabled ? Icons.schedule_rounded : Icons.emergency_rounded,
+                  child: const Icon(
+                    Icons.emergency_rounded,
                     size: 32,
                     color: Colors.white,
                   ),
@@ -1329,9 +1600,9 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        disabled ? 'SOS COOLDOWN' : 'EMERGENCY SOS',
-                        style: const TextStyle(
+                      const Text(
+                        'EMERGENCY SOS',
+                        style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.w700,
                           color: Colors.white,
@@ -1340,9 +1611,7 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        disabled
-                            ? 'Available in $remainingText'
-                            : 'Tap to trigger emergency alert',
+                        'Tap to trigger emergency alert',
                         style: TextStyle(
                           fontSize: 13,
                           color: Colors.white.withValues(alpha: 0.9),

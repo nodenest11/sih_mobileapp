@@ -48,6 +48,9 @@ class GeofencingService {
   Timer? _locationTimer;
   bool _isMonitoring = false;
 
+  // Public access to restricted zones for map display
+  List<RestrictedZone> get restrictedZones => List.unmodifiable(_restrictedZones);
+
   // Configuration
   static const Duration _checkInterval = Duration(seconds: 5); // Check location every 5 seconds for faster response
   static const double _nearbyThresholdMeters = 500.0; // Alert when within 500m

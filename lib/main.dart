@@ -11,6 +11,7 @@ import 'screens/login_screen.dart';
 import 'screens/onboarding_screen.dart';
 import 'services/api_service.dart';
 import 'services/fcm_notification_service.dart';
+import 'services/settings_manager.dart';
 import 'utils/logger.dart';
 import 'theme/app_theme.dart';
 
@@ -107,6 +108,14 @@ Future<void> _initializeApp() async {
     DeviceOrientation.portraitUp,
     DeviceOrientation.portraitDown,
   ]);
+  
+  // Initialize Settings Manager
+  try {
+    await SettingsManager().initialize();
+    AppLogger.info('✅ Settings Manager initialized');
+  } catch (e) {
+    AppLogger.error('❌ Settings Manager initialization failed: $e');
+  }
   
   // Store API base URL in shared preferences for background service access
   final prefs = await SharedPreferences.getInstance();
