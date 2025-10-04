@@ -856,7 +856,7 @@ class ApiService {
   }) async {
     try {
       final response = await client.get(
-        Uri.parse("https://nominatim.openstreetmap.org/reverse?format=json&lat=$lat&lon=$lon&zoom=18&addressdetails=1"),
+        Uri.parse("${nominatimSearchUrl.replaceAll('/search', '/reverse')}?format=json&lat=$lat&lon=$lon&zoom=18&addressdetails=1"),
         headers: {"User-Agent": "TouristSafetyApp/1.0"},
       ).timeout(timeout);
 
@@ -1012,6 +1012,7 @@ class ApiService {
     double? maxLat, 
     double? minLng,
     double? maxLng,
+    String? excludeTouristId, // Exclude alerts from this tourist
   }) async {
     try {
       final requestHeaders = await safeHeaders;
@@ -1024,6 +1025,12 @@ class ApiService {
         'hours_back': ((daysPast ?? 30) * 24).toString(), // Convert days to hours
         'severity': 'high', // Only high-severity alerts (includes SOS)
       };
+      
+      // Add exclude parameter if provided (to hide self-created alerts from heatmap)
+      if (excludeTouristId != null && excludeTouristId.isNotEmpty) {
+        queryParams['exclude_tourist_id'] = excludeTouristId;
+        AppLogger.info('🚫 Excluding alerts from tourist: $excludeTouristId (heatmap)');
+      }
       
       // Add bounding box if provided
       if (minLat != null) queryParams['bounds_south'] = minLat.toStringAsFixed(6);
@@ -1050,9 +1057,21 @@ class ApiService {
         
         AppLogger.info('📊 Received ${alerts.length} alerts for heatmap');
         
-        // Filter for SOS/panic alerts
+        // Filter for SOS/panic alerts and exclude self-created ones
         final panicAlerts = alerts.where((alert) {
-          return alert["type"]?.toLowerCase() == "sos";
+          // Filter by type
+          if (alert["type"]?.toLowerCase() != "sos") return false;
+          
+          // Filter out self-created alerts (client-side fallback)
+          if (excludeTouristId != null && excludeTouristId.isNotEmpty) {
+            final alertTouristId = alert["tourist_id"]?.toString();
+            if (alertTouristId == excludeTouristId) {
+              AppLogger.info('🚫 Filtered out self-created alert from heatmap');
+              return false;
+            }
+          }
+          
+          return true;
         }).toList();
         
         AppLogger.info('🚨 Filtered to ${panicAlerts.length} SOS alerts for heatmap');
@@ -1271,21 +1290,32 @@ class ApiService {
   Future<List<Map<String, dynamic>>> getPublicPanicAlerts({
     int limit = 50,
     int hoursBack = 24,
+    String? excludeTouristId, // Exclude alerts from this tourist
   }) async {
     try {
       // PUBLIC ENDPOINT - No authentication required
       // Correct endpoint: /api/public/panic-alerts (not /notify/public/panic-alerts)
       final endpoint = '/public/panic-alerts';
       
+      final queryParams = {
+        'limit': limit.toString(),
+        'hours_back': hoursBack.toString(),
+      };
+      
+      // Add exclude parameter if provided (to hide self-created alerts)
+      if (excludeTouristId != null && excludeTouristId.isNotEmpty) {
+        queryParams['exclude_tourist_id'] = excludeTouristId;
+      }
+      
       final uri = Uri.parse('$baseUrl$apiPrefix$endpoint').replace(
-        queryParameters: {
-          'limit': limit.toString(),
-          'hours_back': hoursBack.toString(),
-        },
+        queryParameters: queryParams,
       );
       
       AppLogger.info('📡 Fetching public panic alerts (no auth required)');
       AppLogger.info('📡 Request URL: $uri');
+      if (excludeTouristId != null) {
+        AppLogger.info('🚫 Excluding alerts from tourist: $excludeTouristId');
+      }
       
       // Use client.get WITHOUT authentication headers
       final response = await client.get(uri).timeout(timeout);
@@ -1322,6 +1352,8 @@ class ApiService {
             'status': alert['status'], // 'active' (<1hr) or 'older' (1-24hr)
             'resolved': alert['resolved'] ?? false,
             'resolved_at': alert['resolved_at'],
+            'tourist_id': alert['tourist_id'], // May be null if backend doesn't provide it
+            'user_id': alert['user_id'], // Alternative field name
           };
         }).toList();
       }

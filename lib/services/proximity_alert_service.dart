@@ -88,6 +88,7 @@ class ProximityAlertService {
   final Set<String> _acknowledgedZones = {}; // Track shown zone alerts
   Timer? _monitoringTimer;
   bool _isMonitoring = false;
+  String? _currentTouristId; // Current user's tourist ID to exclude own alerts
 
   // Stream for proximity events
   StreamController<ProximityAlertEvent>? _eventController;
@@ -115,12 +116,21 @@ class ProximityAlertService {
   
   // Location tracking
   StreamSubscription<Position>? _locationSubscription;
-  LatLng? _lastKnownLocation;
 
   /// Initialize the proximity alert service
   Future<void> initialize() async {
     await _initializeNotifications();
     AppLogger.service('✅ Proximity Alert Service initialized');
+  }
+
+  /// Set the current tourist ID to exclude own alerts
+  void setCurrentTouristId(String? touristId) {
+    _currentTouristId = touristId?.toString().trim();
+    AppLogger.info('🆔 Proximity service tourist ID set: "$_currentTouristId" (type: ${_currentTouristId.runtimeType})');
+    
+    // Clear acknowledged alerts when tourist ID changes
+    _acknowledgedPanicAlerts.clear();
+    AppLogger.info('🧹 Cleared acknowledged alerts cache');
   }
 
   /// Initialize notification channels
@@ -219,7 +229,6 @@ class ProximityAlertService {
     ).listen(
       (Position position) {
         final location = LatLng(position.latitude, position.longitude);
-        _lastKnownLocation = location;
         
         // Emit location update
         _locationController?.add(location);
@@ -285,12 +294,16 @@ class ProximityAlertService {
   Future<void> _checkNearbyPanicAlerts(LatLng currentLocation) async {
     try {
       AppLogger.info('🔍 Checking for nearby panic alerts...');
+      AppLogger.info('🆔 Current tourist ID for filtering: $_currentTouristId');
 
-      // Fetch only UNRESOLVED panic alerts (default behavior - no show_resolved parameter)
+      // Fetch only UNRESOLVED panic alerts, excluding current user's alerts
       final publicAlerts = await _apiService.getPublicPanicAlerts(
         limit: 100,
         hoursBack: 24, // Last 24 hours
+        excludeTouristId: _currentTouristId, // Exclude current user's own alerts
       );
+      
+      AppLogger.info('📡 Server returned ${publicAlerts.length} alerts after server-side filtering');
 
       if (publicAlerts.isEmpty) {
         AppLogger.info('ℹ️ No unresolved panic alerts found');
@@ -337,6 +350,29 @@ class ProximityAlertService {
       // Process alerts (only show new ones)
       for (final alert in nearbyAlerts) {
         final alertId = alert['alert_id'] as int;
+        
+        // COMPREHENSIVE CHECK: Skip if this alert is from current user
+        final alertTouristId = alert['tourist_id']?.toString().trim();
+        final alertUserId = alert['user_id']?.toString().trim();
+        final alertCreatorId = alert['creator_id']?.toString().trim(); // Additional field check
+        
+        // Debug: Log all alert data for troubleshooting
+        AppLogger.info('📋 Alert data: $alert');
+        
+        // Check all possible ID fields
+        bool isOwnAlert = false;
+        if (_currentTouristId != null && _currentTouristId!.isNotEmpty) {
+          isOwnAlert = (alertTouristId == _currentTouristId) ||
+                      (alertUserId == _currentTouristId) ||
+                      (alertCreatorId == _currentTouristId);
+        }
+        
+        if (isOwnAlert) {
+          AppLogger.info('🚫 FILTERED OWN ALERT: ID=$alertId, touristId="$alertTouristId", userId="$alertUserId", creatorId="$alertCreatorId", currentId="$_currentTouristId"');
+          continue;
+        }
+        
+        AppLogger.info('✅ SHOWING OTHER\'S ALERT: ID=$alertId, touristId="$alertTouristId", userId="$alertUserId", currentId="$_currentTouristId"');
         
         // Skip if already acknowledged
         if (_acknowledgedPanicAlerts.contains(alertId)) continue;
@@ -517,6 +553,14 @@ class ProximityAlertService {
     _acknowledgedPanicAlerts.clear();
     _acknowledgedZones.clear();
     AppLogger.info('Acknowledged alerts cleared');
+  }
+
+  /// Debug method to print current state
+  void debugCurrentState() {
+    AppLogger.info('🔍 ProximityAlertService Debug State:');
+    AppLogger.info('  - Current Tourist ID: "$_currentTouristId"');
+    AppLogger.info('  - Acknowledged Panic Alerts: ${_acknowledgedPanicAlerts.length}');
+    AppLogger.info('  - Acknowledged Zones: ${_acknowledgedZones.length}');
   }
 
   /// Dispose service

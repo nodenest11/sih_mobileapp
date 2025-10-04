@@ -1,5 +1,5 @@
 name: mobile
-description: "Tourist Safety App - Live tracking, maps, panic button"
+description: "Tourist Safety App - Live tracking, maps, panic button , geofencing"
 publish_to: 'none'
 
 version: 1.0.0+1
@@ -22,6 +22,7 @@ dependencies:
   shared_preferences: ^2.3.3
   intl: ^0.20.2
   flutter_dotenv: ^6.0.0
+  crypto: ^3.0.3
   
   # State management
   provider: ^6.1.2
@@ -42,6 +43,9 @@ dependencies:
   # Device and app information
   device_info_plus: ^12.1.0
   package_info_plus: ^8.3.1
+  battery_plus: ^6.0.1
+  connectivity_plus: ^7.0.0
+  path_provider: ^2.1.4
 
 dev_dependencies:
   flutter_test:

@@ -6,7 +6,6 @@ import '../models/location.dart';
 import '../models/alert.dart';
 import '../services/api_service.dart';
 import '../services/location_service.dart';
-import '../services/panic_service.dart';
 import '../services/geofencing_service.dart';
 import '../services/proximity_alert_service.dart';
 import '../services/safety_score_manager.dart';
@@ -16,9 +15,9 @@ import 'map_screen.dart';
 import '../widgets/safety_score_widget.dart';
 import '../widgets/geofence_alert.dart';
 import '../widgets/proximity_alert_widget.dart';
-import 'location_history_screen.dart';
 import 'emergency_contacts_screen.dart';
 import 'efir_form_screen.dart';
+import 'sos_countdown_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   final Tourist tourist;
@@ -37,7 +36,6 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMixin {
   final ApiService _apiService = ApiService();
   final LocationService _locationService = LocationService();
-  final PanicService _panicService = PanicService();
   final GeofencingService _geofencingService = GeofencingService.instance;
   final ProximityAlertService _proximityAlertService = ProximityAlertService.instance;
   
@@ -53,7 +51,6 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
   bool _isLoadingLocation = false;
   String _locationStatus = 'Your location will be sharing';
   Map<String, dynamic>? _currentLocationInfo;
-  // Cooldown removed - users can send SOS anytime
 
   @override
   void initState() {
@@ -135,7 +132,16 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
   Future<void> _initializeProximityAlerts() async {
     // Initialize and start proximity alert service
     await _proximityAlertService.initialize();
+    
+    // Set current tourist ID to exclude own alerts - ensure it's a string
+    final touristId = widget.tourist.id.toString().trim();
+    AppLogger.info('🆔 Setting proximity alert tourist ID: "$touristId" (from: "${widget.tourist.id}")');
+    _proximityAlertService.setCurrentTouristId(touristId);
+    
     await _proximityAlertService.startMonitoring();
+    
+    // Debug current state
+    _proximityAlertService.debugCurrentState();
     
     // Listen to proximity alert events
     _proximityAlertService.events.listen((event) {
@@ -467,110 +473,10 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
   }
 
   Future<void> _handleSOSPress() async {
-    // Show confirmation dialog
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Row(
-          children: [
-            Icon(Icons.emergency, color: Colors.red, size: 28),
-            SizedBox(width: 12),
-            Text('Emergency SOS'),
-          ],
-        ),
-        content: const Text(
-          'Send emergency alert to authorities with your current location?\n\nThis will notify police and emergency contacts immediately.',
-          style: TextStyle(fontSize: 16),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('CANCEL'),
-          ),
-          ElevatedButton.icon(
-            onPressed: () => Navigator.of(context).pop(true),
-            icon: const Icon(Icons.emergency),
-            label: const Text('SEND SOS'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red,
-              foregroundColor: Colors.white,
-            ),
-          ),
-        ],
-      ),
-    );
-    
-    if (confirmed != true) return;
-    
-    // Show loading indicator
-    if (!mounted) return;
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => const Center(
-        child: Card(
-          child: Padding(
-            padding: EdgeInsets.all(24.0),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                CircularProgressIndicator(),
-                SizedBox(height: 16),
-                Text('Sending emergency alert...'),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-    
-    try {
-      // Send panic alert immediately
-      await _panicService.sendPanicAlert();
-      
-      if (!mounted) return;
-      Navigator.of(context).pop(); // Close loading dialog
-      
-      // Show success
-      _showSuccessSnackBar('✅ Emergency alert sent successfully!');
-      
-      // Reload alerts to show the new one
-      _loadAlerts();
-    } catch (e) {
-      if (!mounted) return;
-      Navigator.of(context).pop(); // Close loading dialog
-      
-      _showErrorSnackBar('Failed to send SOS: ${e.toString()}');
-      AppLogger.error('SOS send failed: $e');
-    }
-  }
-
-  void _showSuccessSnackBar(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: Colors.green,
-        duration: const Duration(seconds: 4),
-        action: SnackBarAction(
-          label: 'OK',
-          textColor: Colors.white,
-          onPressed: () => ScaffoldMessenger.of(context).hideCurrentSnackBar(),
-        ),
-      ),
-    );
-  }
-
-  void _showErrorSnackBar(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: Colors.red,
-        duration: const Duration(seconds: 4),
-        action: SnackBarAction(
-          label: 'OK',
-          textColor: Colors.white,
-          onPressed: () => ScaffoldMessenger.of(context).hideCurrentSnackBar(),
-        ),
+    // Navigate to countdown screen
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => SOSCountdownScreen(tourist: widget.tourist),
       ),
     );
   }
@@ -936,16 +842,10 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
               _buildSimpleActionButton(
-                icon: Icons.map_rounded,
-                label: 'Map',
+                icon: Icons.shield_rounded,
+                label: 'Safety Tips',
                 onTap: () {
-                  // Navigation is handled by ModernAppWrapper bottom nav
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Use bottom navigation to access Map'),
-                      duration: Duration(seconds: 1),
-                    ),
-                  );
+                  _showSafetyTipsDialog();
                 },
               ),
               _buildSimpleActionButton(
@@ -959,37 +859,8 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
                 },
               ),
               _buildSimpleActionButton(
-                icon: Icons.location_history_rounded,
-                label: 'History',
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (context) => const LocationHistoryScreen()),
-                  );
-                },
-              ),
-              _buildSimpleActionButton(
-                icon: Icons.person_rounded,
-                label: 'Profile',
-                onTap: () {
-                  // Navigation is handled by ModernAppWrapper bottom nav
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Use bottom navigation to access Profile'),
-                      duration: Duration(seconds: 1),
-                    ),
-                  );
-                },
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              _buildSimpleActionButton(
                 icon: Icons.contacts_rounded,
-                label: 'Contacts',
+                label: 'Emergency',
                 onTap: () {
                   Navigator.push(
                     context,
@@ -998,17 +869,19 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
                 },
               ),
               _buildSimpleActionButton(
-                icon: Icons.description_rounded,
-                label: 'E-FIR',
+                icon: Icons.warning_amber_rounded,
+                label: 'Zones',
                 onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (context) => EFIRFormScreen(tourist: widget.tourist)),
-                  );
+                  _showDangerZonesInfo();
                 },
               ),
-              const SizedBox(width: 60), // Spacer
-              const SizedBox(width: 60), // Spacer
+              _buildSimpleActionButton(
+                icon: Icons.share_location_rounded,
+                label: 'Share',
+                onTap: () {
+                  _shareLocation();
+                },
+              ),
             ],
           ),
         ],
@@ -1633,4 +1506,217 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
       ),
     );
   }
+
+  // Tourist Safety Quick Action Dialogs
+  void _showSafetyTipsDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.shield_rounded, color: Color(0xFF10B981)),
+            SizedBox(width: 8),
+            Text('Safety Tips'),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildTipItem('📍 Keep location services ON at all times'),
+              _buildTipItem('📱 Keep your phone charged above 20%'),
+              _buildTipItem('👥 Stay in crowded, well-lit areas'),
+              _buildTipItem('🚫 Avoid restricted zones marked in red'),
+              _buildTipItem('📞 Save emergency contacts before traveling'),
+              _buildTipItem('🗺️ Check the heatmap for dangerous areas'),
+              _buildTipItem('⚡ Use SOS button if you feel unsafe'),
+              _buildTipItem('📸 Share your location with trusted contacts'),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Got it'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showDangerZonesInfo() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: Color(0xFFDC2626)),
+            SizedBox(width: 8),
+            Text('Danger Zones'),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Your current safety score: ${null}',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+              ),
+              const SizedBox(height: 16),
+              const Text('How to stay safe:', style: TextStyle(fontWeight: FontWeight.w600)),
+              const SizedBox(height: 8),
+              _buildTipItem('🔴 Red zones: High crime rate, avoid if possible'),
+              _buildTipItem('🟠 Orange zones: Moderate risk, stay alert'),
+              _buildTipItem('🟡 Yellow zones: Low-medium risk, be cautious'),
+              _buildTipItem('🟢 Green zones: Safest areas'),
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFEF2F2),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: const Color(0xFFDC2626).withValues(alpha: 0.3)),
+                ),
+                child: const Row(
+                  children: [
+                    Icon(Icons.info_outline, color: Color(0xFFDC2626), size: 20),
+                    SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Check the Map screen to view all danger zones in your area.',
+                        style: TextStyle(fontSize: 12, color: Color(0xFF991B1B)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              // Navigate to map screen via bottom navigation
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Use bottom navigation to view Map'),
+                  duration: Duration(seconds: 2),
+                ),
+              );
+            },
+            child: const Text('View Map'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+
+
+  void _shareLocation() async {
+    if (_currentLocationInfo != null) {
+      final lat = _currentLocationInfo!['latitude'];
+      final lon = _currentLocationInfo!['longitude'];
+      final address = _currentLocationInfo!['address'] ?? 'Unknown location';
+      
+      final message = '📍 My current location:\n'
+          '$address\n'
+          'Coordinates: $lat, $lon\n'
+          'Google Maps: https://maps.google.com/?q=$lat,$lon\n\n'
+          'Shared via Smart Tourist Safety App';
+      
+      // Show share dialog
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.share_location_rounded, color: Color(0xFF1E40AF)),
+              SizedBox(width: 8),
+              Text('Share Location'),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                address,
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              Text('Lat: $lat, Lon: $lon'),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEFF6FF),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  message,
+                  style: const TextStyle(fontSize: 12),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Clipboard.setData(ClipboardData(text: message));
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Location copied to clipboard!'),
+                    duration: Duration(seconds: 2),
+                  ),
+                );
+              },
+              child: const Text('Copy'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Close'),
+            ),
+          ],
+        ),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Location not available. Please wait...'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+    }
+  }
+
+  Widget _buildTipItem(String text) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.check_circle, color: Color(0xFF10B981), size: 18),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              text,
+              style: const TextStyle(fontSize: 13, height: 1.4),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+
 }
