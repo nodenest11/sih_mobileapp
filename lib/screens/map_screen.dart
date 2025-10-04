@@ -239,29 +239,46 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   
   Future<void> _loadHeatmapData() async {
     try {
-      // Pass tourist ID to exclude self-created alerts from heatmap
-      final panicData = await _apiService.getPanicAlertHeatData(
-        daysPast: 30,
-        excludeTouristId: widget.tourist.id,
-      );
-      final zones = await _apiService.getRestrictedZones();
+      // Load panic data and zones in parallel, with individual error handling
+      final List<Future> futures = [
+        _apiService.getPanicAlertHeatData(
+          daysPast: 30,
+          excludeTouristId: widget.tourist.id,
+        ).catchError((e) {
+          AppLogger.info('Panic alert data unavailable (tourist role) - continuing without alert heatmap');
+          return <GeospatialHeatPoint>[];
+        }),
+        _apiService.getRestrictedZones().catchError((e) {
+          AppLogger.warning('Failed to load restricted zones: $e');
+          return <RestrictedZone>[];
+        }),
+      ];
+      
+      final results = await Future.wait(futures);
+      final panicData = results[0] as List<GeospatialHeatPoint>;
+      final zones = results[1] as List<RestrictedZone>;
       
       final zoneHeatData = zones.map((zone) {
-        if (zone.polygonCoordinates.isEmpty) return null;
-        
-        final avgLat = zone.polygonCoordinates
-            .map((p) => p.latitude)
-            .reduce((a, b) => a + b) / zone.polygonCoordinates.length;
-        final avgLng = zone.polygonCoordinates
-            .map((p) => p.longitude)
-            .reduce((a, b) => a + b) / zone.polygonCoordinates.length;
-        
-        return GeospatialHeatPoint.fromRestrictedZone(
-          latitude: avgLat,
-          longitude: avgLng,
-          intensity: _getZoneIntensity(zone.type),
-          description: zone.name,
-        );
+        try {
+          if (zone.polygonCoordinates.isEmpty) return null;
+          
+          final avgLat = zone.polygonCoordinates
+              .map((p) => p.latitude)
+              .reduce((a, b) => a + b) / zone.polygonCoordinates.length;
+          final avgLng = zone.polygonCoordinates
+              .map((p) => p.longitude)
+              .reduce((a, b) => a + b) / zone.polygonCoordinates.length;
+          
+          return GeospatialHeatPoint.fromRestrictedZone(
+            latitude: avgLat,
+            longitude: avgLng,
+            intensity: _getZoneIntensity(zone.type),
+            description: zone.name,
+          );
+        } catch (e) {
+          AppLogger.warning('Failed to process zone ${zone.name}: $e');
+          return null;
+        }
       }).whereType<GeospatialHeatPoint>().toList();
 
       if (mounted) {
@@ -270,9 +287,15 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
         });
       }
       
-      AppLogger.info('🗺️ Loaded ${_heatmapData.length} heat points');
+      AppLogger.info('🗺️ Loaded ${_heatmapData.length} heat points (${panicData.length} alerts, ${zoneHeatData.length} zones)');
     } catch (e) {
-      AppLogger.error('Failed to load heatmap: $e');
+      AppLogger.error('Failed to load heatmap data: $e');
+      // Continue with empty heatmap rather than failing completely
+      if (mounted) {
+        setState(() {
+          _heatmapData = [];
+        });
+      }
     }
   }
 
@@ -449,20 +472,43 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
         }
         
         // Check distance - only show alerts within 20km
-        final distance = _calculateDistance(
-          _currentLocation!.latitude,
-          _currentLocation!.longitude,
-          alert['latitude'],
-          alert['longitude'],
-        );
-        return distance <= 20.0;
-      }).map((alert) => GeospatialHeatPoint.fromPanicAlert(
-        latitude: alert['latitude'],
-        longitude: alert['longitude'],
-        timestamp: DateTime.parse(alert['timestamp'] ?? DateTime.now().toIso8601String()),
-        intensity: 0.9,
-        description: 'Emergency Alert',
-      )).toList();
+        // Safely extract latitude and longitude with null checks
+        final lat = alert['latitude'];
+        final lng = alert['longitude'];
+        
+        if (lat == null || lng == null) {
+          AppLogger.warning('Alert missing coordinates: $alert');
+          return false;
+        }
+        
+        try {
+          final distance = _calculateDistance(
+            _currentLocation!.latitude,
+            _currentLocation!.longitude,
+            lat is num ? lat.toDouble() : double.parse(lat.toString()),
+            lng is num ? lng.toDouble() : double.parse(lng.toString()),
+          );
+          return distance <= 20.0;
+        } catch (e) {
+          AppLogger.warning('Invalid coordinates in alert: lat=$lat, lng=$lng, error=$e');
+          return false;
+        }
+      }).map((alert) {
+        try {
+          final lat = alert['latitude'];
+          final lng = alert['longitude'];
+          return GeospatialHeatPoint.fromPanicAlert(
+            latitude: lat is num ? lat.toDouble() : double.parse(lat.toString()),
+            longitude: lng is num ? lng.toDouble() : double.parse(lng.toString()),
+            timestamp: DateTime.parse(alert['timestamp'] ?? DateTime.now().toIso8601String()),
+            intensity: 0.9,
+            description: 'Emergency Alert',
+          );
+        } catch (e) {
+          AppLogger.warning('Failed to create GeospatialHeatPoint from alert: $alert, error: $e');
+          return null;
+        }
+      }).whereType<GeospatialHeatPoint>().toList();
 
       if (mounted) {
         setState(() {

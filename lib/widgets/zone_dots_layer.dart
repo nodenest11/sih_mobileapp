@@ -43,7 +43,7 @@ class ZoneDotsLayer extends StatelessWidget {
         }
       },
       child: StreamBuilder<MapEvent>(
-        stream: MapController.of(context).mapEventStream,
+        stream: MapController.maybeOf(context)?.mapEventStream ?? const Stream.empty(),
         builder: (context, snapshot) {
           final camera = MapCamera.of(context);
           

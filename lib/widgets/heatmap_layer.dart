@@ -27,22 +27,36 @@ class HeatmapLayer extends StatelessWidget {
       return const SizedBox.shrink();
     }
 
-    return StreamBuilder<MapEvent>(
-      stream: MapController.of(context).mapEventStream,
-      builder: (context, snapshot) {
-        final camera = MapCamera.of(context);
-        
-        return CustomPaint(
-          painter: _HeatmapPainter(
-            camera: camera,
-            heatPoints: heatPoints,
-            radiusKm: radiusKm,
-            opacity: opacity,
-          ),
-          size: Size.infinite,
-          isComplex: true,
-          willChange: true,
-        );
+    return Builder(
+      builder: (context) {
+        try {
+          final mapController = MapController.maybeOf(context);
+          if (mapController == null) {
+            return const SizedBox.shrink();
+          }
+          
+          return StreamBuilder<MapEvent>(
+            stream: mapController.mapEventStream,
+            builder: (context, snapshot) {
+              final camera = MapCamera.of(context);
+              
+              return CustomPaint(
+                painter: _HeatmapPainter(
+                  camera: camera,
+                  heatPoints: heatPoints,
+                  radiusKm: radiusKm,
+                  opacity: opacity,
+                ),
+                size: Size.infinite,
+                isComplex: true,
+                willChange: true,
+              );
+            },
+          );
+        } catch (e) {
+          // If MapController is not available yet, return empty widget
+          return const SizedBox.shrink();
+        }
       },
     );
   }

@@ -28,17 +28,26 @@ class GeospatialHeatmapLayer extends StatelessWidget {
       child: RepaintBoundary(
         child: Builder(
           builder: (context) {
-            final mapState = MapController.of(context);
-            final camera = mapState.camera;
-            
-            return CustomPaint(
-              painter: _GeospatialHeatmapPainter(
-                camera: camera,
-                heatPoints: heatPoints,
-                config: config,
-              ),
-              size: Size.infinite,
-            );
+            try {
+              final mapController = MapController.maybeOf(context);
+              if (mapController == null) {
+                return const SizedBox.shrink();
+              }
+              
+              final camera = mapController.camera;
+              
+              return CustomPaint(
+                painter: _GeospatialHeatmapPainter(
+                  camera: camera,
+                  heatPoints: heatPoints,
+                  config: config,
+                ),
+                size: Size.infinite,
+              );
+            } catch (e) {
+              // If MapController is not available yet, return empty widget
+              return const SizedBox.shrink();
+            }
           },
         ),
       ),

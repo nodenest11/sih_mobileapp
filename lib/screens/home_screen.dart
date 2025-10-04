@@ -83,21 +83,51 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
   bool get wantKeepAlive => true; // Keep screen alive when switching tabs
 
   Future<void> _getCurrentLocation() async {
+    if (!mounted) return;
+    
     setState(() {
       _isLoadingLocation = true;
     });
     
-    final locationInfo = await _locationService.getCurrentLocationWithAddress();
-    
-    setState(() {
-      _currentLocationInfo = locationInfo;
-      _isLoadingLocation = false;
-      if (locationInfo != null) {
-        _locationStatus = 'Location sharing active';
-      } else {
-        _locationStatus = 'Your location will be sharing';
+    try {
+      final locationInfo = await _locationService.getCurrentLocationWithAddress();
+      
+      if (mounted) {
+        setState(() {
+          _currentLocationInfo = locationInfo;
+          _isLoadingLocation = false;
+          if (locationInfo != null) {
+            _locationStatus = 'Location sharing active';
+          } else {
+            _locationStatus = 'Location access unavailable';
+          }
+        });
       }
-    });
+    } catch (e) {
+      AppLogger.warning('Home screen location access failed: $e');
+      
+      if (mounted) {
+        setState(() {
+          _currentLocationInfo = null;
+          _isLoadingLocation = false;
+          
+          // Provide user-friendly status message
+          if (e.toString().contains('FlutterMap widget rendered')) {
+            _locationStatus = 'Initializing location services...';
+            // Retry after a short delay
+            Future.delayed(const Duration(seconds: 2), () {
+              if (mounted) _getCurrentLocation();
+            });
+          } else if (e.toString().contains('Permission denied')) {
+            _locationStatus = 'Location permission required';
+          } else if (e.toString().contains('Location services are disabled')) {
+            _locationStatus = 'Location services disabled';
+          } else {
+            _locationStatus = 'Location temporarily unavailable';
+          }
+        });
+      }
+    }
   }
 
   Future<void> _initializeServices() async {
