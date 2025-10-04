@@ -7,14 +7,12 @@ import 'package:permission_handler/permission_handler.dart';
 import '../models/location.dart';
 import 'api_service.dart';
 import 'background_location_service.dart';
-import 'fcm_notification_service.dart';
 import '../utils/logger.dart';
 
 class LocationService {
   static const int _locationUpdateInterval = 300; // seconds (5 minutes)
   
   final ApiService _apiService = ApiService();
-  final FCMNotificationService _notificationService = FCMNotificationService();
   StreamSubscription<Position>? _positionSubscription;
   Timer? _updateTimer;
   String? _currentTouristId;
@@ -218,11 +216,7 @@ class LocationService {
         (timer) async {
           if (_lastKnownPosition != null) {
             await _sendLocationToBackend(_lastKnownPosition!);
-            // Show silent notification after location is shared
-            await _notificationService.showSilentLocationNotification(
-              latitude: _lastKnownPosition!.latitude,
-              longitude: _lastKnownPosition!.longitude,
-            );
+            // Location updated successfully (removed FCM notification)
           }
         },
       );

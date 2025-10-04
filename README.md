@@ -9,7 +9,9 @@ A Flutter mobile application designed for tourist safety with real-time tracking
 - **Safety Score System**: Dynamic 0-100 safety scoring based on location and context
 - **Emergency SOS**: Instant panic button with location sharing to authorities
 - **Proximity Alerts**: Notifications for nearby incidents and restricted zones
-- **Push Notifications**: Firebase Cloud Messaging for emergency broadcasts
+- **Safety Zones**: Real-time geofencing with warnings for restricted areas
+- **Panic Button**: Emergency location sharing with authorities
+- **Local Notifications**: Important safety alerts and updates
 - **Modern UI**: Clean, accessible design with comprehensive safety features
 
 ## Quick Start
@@ -21,7 +23,7 @@ A Flutter mobile application designed for tourist safety with real-time tracking
 
 2. **Configure Environment**
    - Copy `.env.example` to `.env`
-   - Update API endpoints and Firebase configuration
+   - Update API endpoints in `.env` file
 
 3. **Run the App**
    ```bash
@@ -45,7 +47,7 @@ A Flutter mobile application designed for tourist safety with real-time tracking
 
 - Flutter & Dart
 - OpenStreetMap (flutter_map)
-- Firebase Cloud Messaging
+- Local Notifications
 - JWT Authentication
 - Real-time Location Services
 

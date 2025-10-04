@@ -1,10 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../services/api_service.dart';
-import '../services/fcm_notification_service.dart';
 import '../models/tourist.dart';
 import '../widgets/modern_app_wrapper.dart';
-import '../utils/logger.dart';
 import '../theme/app_theme.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -81,30 +79,6 @@ class _LoginScreenState extends State<LoginScreen> {
       );
 
       if (response['success'] == true) {
-        // Initialize FCM notification service
-        try {
-          final fcmService = FCMNotificationService();
-          await fcmService.initialize();
-          
-          // Verify device registration
-          final isRegistered = await fcmService.verifyRegistration();
-          if (!isRegistered) {
-            // Show user a warning
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('⚠️ Push notifications may not work. Please check your connection.'),
-                  backgroundColor: Colors.orange,
-                  duration: Duration(seconds: 5),
-                ),
-              );
-            }
-          }
-        } catch (e) {
-          AppLogger.service('Failed to initialize FCM: $e', isError: true);
-          // Don't block login if FCM fails
-        }
-        
         // Get current user profile with enhanced error handling
         final userResponse = await _apiService.getCurrentUser();
         if (userResponse['success'] == true) {
