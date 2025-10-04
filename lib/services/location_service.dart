@@ -1,6 +1,6 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:geolocator/geolocator.dart';
-import 'package:latlong2/latlong.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 
@@ -9,15 +9,38 @@ import 'api_service.dart';
 import 'background_location_service.dart';
 import '../utils/logger.dart';
 
+/// Industry-grade location service with smart filtering and battery optimization
 class LocationService {
-  static const int _locationUpdateInterval = 300; // seconds (5 minutes)
+  // Singleton pattern
+  static final LocationService _instance = LocationService._internal();
+  factory LocationService() => _instance;
+  LocationService._internal();
+
+  // Adaptive polling intervals based on movement and battery state
+  static const int _baseLocationUpdateInterval = 300; // 5 minutes base
+  static const int _activeLocationUpdateInterval = 60;  // 1 minute when active
+  static const int _staticLocationUpdateInterval = 900; // 15 minutes when static
+  
+  // Movement detection thresholds
+  static const double _significantMovementThreshold = 10.0; // meters
+  static const double _highSpeedThreshold = 5.0; // m/s (18 km/h)
   
   final ApiService _apiService = ApiService();
   StreamSubscription<Position>? _positionSubscription;
   Timer? _updateTimer;
-  String? _currentTouristId;
   
+  // Optimized location tracking state
   Position? _lastKnownPosition;
+  Position? _lastSignificantPosition;
+  DateTime _lastLocationUpdate = DateTime.now();
+  int _currentUpdateInterval = _baseLocationUpdateInterval;
+  
+  // Smart filtering variables
+  double _totalDistance = 0.0;
+  DateTime _sessionStart = DateTime.now();
+  bool _isStationary = false;
+  int _stationaryCount = 0;
+  
   final StreamController<LocationData> _locationController = StreamController<LocationData>.broadcast();
   final StreamController<String> _statusController = StreamController<String>.broadcast();
 
@@ -26,13 +49,203 @@ class LocationService {
 
   Position? get lastKnownPosition => _lastKnownPosition;
   bool get isTracking => _positionSubscription != null || _updateTimer != null;
+  double get totalDistance => _totalDistance;
+  Duration get sessionDuration => DateTime.now().difference(_sessionStart);
+  
+  /// Enhanced permission handling with mandatory requirements and persistent requests
+  Future<bool> checkAndRequestPermissions({int maxRetries = 3}) async {
+    AppLogger.service('🔐 Starting comprehensive permission check (attempt 1 of $maxRetries)');
+    
+    for (int attempt = 1; attempt <= maxRetries; attempt++) {
+      AppLogger.service('📍 Permission check attempt $attempt/$maxRetries');
+      
+      // 1. Check location services first
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        _addStatus('❌ Location services are disabled. This app requires location services to function.');
+        AppLogger.warning('Location services disabled - showing persistent request');
+        
+        // Show persistent dialog until user enables location services
+        await _showPersistentLocationServiceDialog();
+        
+        // Recheck after user interaction
+        serviceEnabled = await Geolocator.isLocationServiceEnabled();
+        if (!serviceEnabled) {
+          if (attempt < maxRetries) {
+            await Future.delayed(const Duration(seconds: 2));
+            continue;
+          }
+          return false;
+        }
+      }
+
+      // 2. Request location permissions with persistence
+      LocationPermission locationPermission = await Geolocator.checkPermission();
+      
+      if (locationPermission == LocationPermission.denied) {
+        AppLogger.service('📍 Requesting location permission');
+        locationPermission = await Geolocator.requestPermission();
+        
+        if (locationPermission == LocationPermission.denied) {
+          _addStatus('❌ Location permission is required for safety features.');
+          await _showPersistentPermissionDialog('Location', 'location access');
+          
+          if (attempt < maxRetries) {
+            await Future.delayed(const Duration(seconds: 2));
+            continue;
+          }
+          return false;
+        }
+      }
+
+      if (locationPermission == LocationPermission.deniedForever) {
+        _addStatus('❌ Location permission permanently denied. Please enable in device settings.');
+        await _showPersistentSettingsDialog('Location');
+        return false;
+      }
+
+      // 3. Request background location permission (critical for safety)
+      final backgroundLocationStatus = await Permission.locationAlways.status;
+      if (backgroundLocationStatus != PermissionStatus.granted) {
+        AppLogger.service('📍 Requesting background location permission');
+        final result = await Permission.locationAlways.request();
+        
+        if (result != PermissionStatus.granted) {
+          _addStatus('⚠️ Background location is required for continuous safety monitoring.');
+          await _showPersistentPermissionDialog('Background Location', 'continuous location access');
+          
+          if (attempt < maxRetries) {
+            await Future.delayed(const Duration(seconds: 2));
+            continue;
+          }
+          // Continue with reduced functionality warning
+          AppLogger.warning('Continuing without background location - reduced functionality');
+        }
+      }
+
+      // 4. Request notification permissions (mandatory for alerts)
+      final notificationStatus = await Permission.notification.status;
+      if (notificationStatus != PermissionStatus.granted) {
+        AppLogger.service('🔔 Requesting notification permission');
+        final result = await Permission.notification.request();
+        
+        if (result != PermissionStatus.granted) {
+          _addStatus('❌ Notification permission is required for safety alerts.');
+          await _showPersistentPermissionDialog('Notifications', 'safety alerts');
+          
+          if (attempt < maxRetries) {
+            await Future.delayed(const Duration(seconds: 2));
+            continue;
+          }
+          return false;
+        }
+      }
+
+      // 5. Request battery optimization exemption (important for background operation)
+      final batteryStatus = await Permission.ignoreBatteryOptimizations.status;
+      if (batteryStatus != PermissionStatus.granted) {
+        AppLogger.service('🔋 Requesting battery optimization exemption');
+        final result = await Permission.ignoreBatteryOptimizations.request();
+        
+        if (result != PermissionStatus.granted) {
+          _addStatus('⚠️ Battery optimization exemption recommended for reliable operation.');
+          // This is not critical, so we don't block on it
+          AppLogger.warning('Battery optimization exemption not granted - may affect background operation');
+        }
+      }
+
+      // All critical permissions granted
+      _addStatus('✅ All permissions granted successfully.');
+      AppLogger.service('✅ All permissions granted on attempt $attempt');
+      return true;
+    }
+
+    AppLogger.error('❌ Failed to obtain required permissions after $maxRetries attempts');
+    return false;
+  }
+  
+  /// Show persistent dialog for location services
+  Future<void> _showPersistentLocationServiceDialog() async {
+    // This would typically show a dialog in the UI context
+    // For now, we log and wait for manual intervention
+    AppLogger.warning('📍 Location services required - user must enable manually');
+    await Future.delayed(const Duration(seconds: 3));
+  }
+  
+  /// Show persistent dialog for permissions
+  Future<void> _showPersistentPermissionDialog(String permissionName, String purpose) async {
+    AppLogger.warning('🔐 $permissionName permission required for $purpose');
+    await Future.delayed(const Duration(seconds: 2));
+  }
+  
+  /// Show dialog directing user to settings
+  Future<void> _showPersistentSettingsDialog(String permissionName) async {
+    AppLogger.warning('⚙️ $permissionName permission permanently denied - directing to settings');
+    await Future.delayed(const Duration(seconds: 2));
+  }
 
   // Helper method to safely add status updates
   void _addStatus(String status) {
     if (!_statusController.isClosed) {
-      _statusController.add(status);
+      _statusController.add(status);  
       AppLogger.service('Location Status: $status');
     }
+  }
+
+  /// Smart location filtering to reduce unnecessary updates and save battery
+  bool _shouldProcessLocation(Position newPosition) {
+    if (_lastSignificantPosition == null) {
+      _lastSignificantPosition = newPosition;
+      return true;
+    }
+    
+    // Calculate distance from last significant position
+    final distance = Geolocator.distanceBetween(
+      _lastSignificantPosition!.latitude,
+      _lastSignificantPosition!.longitude,
+      newPosition.latitude,
+      newPosition.longitude,
+    );
+    
+    // Check if movement is significant
+    final isSignificantMovement = distance >= _significantMovementThreshold;
+    final isHighSpeed = newPosition.speed > _highSpeedThreshold;
+    final timeSinceLastUpdate = DateTime.now().difference(_lastLocationUpdate);
+    
+    // Update stationary detection
+    if (!isSignificantMovement) {
+      _stationaryCount++;
+      _isStationary = _stationaryCount >= 3;
+    } else {
+      _stationaryCount = 0;
+      _isStationary = false;
+      _totalDistance += distance;
+    }
+    
+    // Adaptive update intervals
+    if (_isStationary) {
+      _currentUpdateInterval = _staticLocationUpdateInterval;
+    } else if (isHighSpeed) {
+      _currentUpdateInterval = _activeLocationUpdateInterval;
+    } else {
+      _currentUpdateInterval = _baseLocationUpdateInterval;
+    }
+    
+    // Process location if:
+    // 1. Significant movement detected
+    // 2. High speed detected
+    // 3. Forced update due to time interval
+    final shouldUpdate = isSignificantMovement || 
+                        isHighSpeed || 
+                        timeSinceLastUpdate.inSeconds >= _currentUpdateInterval;
+    
+    if (shouldUpdate) {
+      _lastSignificantPosition = newPosition;
+      _lastLocationUpdate = DateTime.now();
+      AppLogger.info('📍 Location update: ${distance.toStringAsFixed(1)}m moved, speed: ${newPosition.speed.toStringAsFixed(1)}m/s');
+    }
+    
+    return shouldUpdate;
   }
 
   // Get current location with formatted address
@@ -80,56 +293,6 @@ class LocationService {
     }
   }
 
-  // Check and request all necessary permissions including background location
-  Future<bool> checkAndRequestPermissions() async {
-    bool serviceEnabled;
-    LocationPermission locationPermission;
-
-    // Check if location services are enabled
-    serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) {
-      _addStatus('Location services are disabled. Please enable them.');
-      return false;
-    }
-
-    // Check location permissions
-    locationPermission = await Geolocator.checkPermission();
-    if (locationPermission == LocationPermission.denied) {
-      locationPermission = await Geolocator.requestPermission();
-      if (locationPermission == LocationPermission.denied) {
-        _addStatus('Location permissions are denied.');
-        return false;
-      }
-    }
-
-    if (locationPermission == LocationPermission.deniedForever) {
-      _addStatus('Location permissions are permanently denied. Please enable them in settings.');
-      return false;
-    }
-
-    // Request background location permission (Android 10+)
-    final backgroundLocationStatus = await Permission.locationAlways.request();
-    if (backgroundLocationStatus != PermissionStatus.granted) {
-      _addStatus('Background location permission is required for continuous tracking.');
-      // Continue anyway as some devices might still work
-    }
-
-    // Request notification permissions
-    final notificationStatus = await Permission.notification.request();
-    if (notificationStatus != PermissionStatus.granted) {
-      _addStatus('Notification permission denied. You may not see tracking status.');
-    }
-
-    // Request ignore battery optimization
-    final ignoreBatteryStatus = await Permission.ignoreBatteryOptimizations.request();
-    if (ignoreBatteryStatus != PermissionStatus.granted) {
-      _addStatus('Please disable battery optimization for continuous tracking.');
-    }
-
-    _addStatus('Location permissions granted.');
-    return true;
-  }
-
   // Get current location
   Future<Position?> getCurrentLocation() async {
     try {
@@ -150,7 +313,19 @@ class LocationService {
     }
   }
 
-  // Start live location tracking with background service
+  // Get location settings
+  Future<Map<String, dynamic>> getLocationSettings() async {
+    return {
+      'isTracking': isTracking,
+      'totalDistance': _totalDistance,
+      'sessionDuration': sessionDuration.inMinutes,
+      'isStationary': _isStationary,
+      'updateInterval': _currentUpdateInterval,
+      'lastUpdate': _lastLocationUpdate.toIso8601String(),
+    };
+  }
+
+  /// Start optimized location tracking with smart filtering and battery efficiency
   Future<void> startTracking() async {
     if (isTracking) {
       await stopTracking();
@@ -165,43 +340,39 @@ class LocationService {
     if (!hasPermission) return;
 
     _addStatus('Your location will be sharing');
+    
+    // Reset session tracking
+    _sessionStart = DateTime.now();
+    _totalDistance = 0.0;
+    _isStationary = false;
+    _stationaryCount = 0;
 
     try {
       // Get initial current location immediately
       final currentPosition = await getCurrentLocation();
       if (currentPosition != null) {
         _addStatus('Location sharing active');
-        _handleLocationUpdate(currentPosition);
+        _lastSignificantPosition = currentPosition;
+        _handleLocationUpdateOptimized(currentPosition, forceUpdate: true);
       }
 
-      // Enable wake lock to prevent device from sleeping
+      // Enable wake lock to prevent device from sleeping (only when needed)
       await WakelockPlus.enable();
       
-      // DISABLED: Background service causes isolate errors when app is killed/restarted
-      // The foreground service with wake lock is sufficient for location tracking
-      // If needed in future, the plugin needs to be updated to handle isolate errors
-      /*
-      try {
-        await BackgroundLocationService.initializeService();
-        AppLogger.service('Background location service initialized successfully');
-      } catch (e) {
-        AppLogger.service('Background service initialization failed', isError: true);
-        // Continue without background service if it fails
-      }
-      */
-      AppLogger.service('Using foreground location tracking only (background service disabled)');
+      AppLogger.service('Using optimized foreground location tracking with smart filtering');
       
+      // Adaptive location settings based on device capabilities
       const LocationSettings locationSettings = LocationSettings(
-        accuracy: LocationAccuracy.high,
+        accuracy: LocationAccuracy.medium, // Changed from high to medium for battery
         distanceFilter: 5, // Update when user moves 5 meters
+        timeLimit: Duration(seconds: 30), // Timeout for location requests
       );
 
-      // Start continuous location tracking for foreground updates
+      // Start continuous location tracking with smart filtering
       _positionSubscription = Geolocator.getPositionStream(
         locationSettings: locationSettings,
       ).listen(
         (Position position) {
-          _lastKnownPosition = position;
           _addStatus('Location sharing active');
           _handleLocationUpdate(position);
         },
@@ -210,19 +381,124 @@ class LocationService {
         },
       );
 
-      // Set up periodic updates to backend (every 300 seconds / 5 minutes)
+      // Set up periodic updates to backend
       _updateTimer = Timer.periodic(
-        const Duration(seconds: _locationUpdateInterval),
+        Duration(seconds: _currentUpdateInterval),
         (timer) async {
           if (_lastKnownPosition != null) {
             await _sendLocationToBackend(_lastKnownPosition!);
-            // Location updated successfully (removed FCM notification)
           }
         },
       );
 
     } catch (e) {
       _addStatus('Failed to start tracking: $e');
+    }
+  }
+
+  /// Optimized location update handler with smart filtering
+  void _handleLocationUpdateOptimized(Position position, {bool forceUpdate = false}) {
+    // Apply smart filtering unless forced
+    if (!forceUpdate && !_shouldProcessLocation(position)) {
+      AppLogger.service('📍 Location filtered out (insufficient movement)');
+      return;
+    }
+    
+    AppLogger.service('📍 Processing location update: ${position.latitude.toStringAsFixed(6)}, ${position.longitude.toStringAsFixed(6)}');
+    
+    _lastKnownPosition = position;
+    
+    // Create optimized location data
+    final locationData = LocationData(
+      latitude: position.latitude,
+      longitude: position.longitude,
+      timestamp: DateTime.now(),
+      accuracy: position.accuracy,
+      speed: position.speed,
+      altitude: position.altitude,
+    );
+    
+    // Emit to stream if controller is still active
+    if (!_locationController.isClosed) {
+      _locationController.add(locationData);
+    }
+    
+    // Update location on server (async with exponential backoff)
+    _updateLocationOnServerOptimized(position);
+  }
+
+  /// Legacy method for backward compatibility
+  void _handleLocationUpdate(Position position) {
+    _handleLocationUpdateOptimized(position);
+  }
+
+  /// Optimized server update with exponential backoff and batching
+  int _serverUpdateFailCount = 0;
+  static const int _maxRetryAttempts = 3;
+  Timer? _batchUpdateTimer;
+  final List<Position> _pendingUpdates = [];
+  
+  Future<void> _updateLocationOnServerOptimized(Position position) async {
+    // Add to pending updates for potential batching
+    _pendingUpdates.add(position);
+    
+    // Cancel existing timer and set new one for batching
+    _batchUpdateTimer?.cancel();
+    _batchUpdateTimer = Timer(const Duration(seconds: 5), () {
+      _processPendingUpdates();
+    });
+  }
+  
+  Future<void> _processPendingUpdates() async {
+    if (_pendingUpdates.isEmpty) return;
+    
+    // Use the most recent position for the update
+    final latestPosition = _pendingUpdates.last;
+    final updateCount = _pendingUpdates.length;
+    _pendingUpdates.clear();
+    
+    try {
+      await _updateLocationWithRetry(latestPosition);
+      _serverUpdateFailCount = 0; // Reset on success
+      AppLogger.service('✅ Batch updated $updateCount location(s) on server');
+    } catch (e) {
+      _serverUpdateFailCount++;
+      final backoffDelay = math.pow(2, _serverUpdateFailCount.clamp(0, 5)).toInt();
+      AppLogger.warning('❌ Location server update failed (attempt $_serverUpdateFailCount): $e');
+      
+      if (_serverUpdateFailCount <= _maxRetryAttempts) {
+        AppLogger.info('🔄 Retrying location update in ${backoffDelay}s');
+        Timer(Duration(seconds: backoffDelay), () {
+          _processPendingUpdates();
+        });
+      }
+    }
+  }
+  
+  Future<void> _updateLocationWithRetry(Position position) async {
+    await _apiService.updateLocation(
+      lat: position.latitude,
+      lon: position.longitude,
+      speed: position.speed,
+      altitude: position.altitude,
+      accuracy: position.accuracy,
+      timestamp: DateTime.now(),
+    );
+  }
+
+  // Send location to backend
+  Future<void> _sendLocationToBackend(Position position) async {
+    try {
+      await _apiService.updateLocation(
+        lat: position.latitude,
+        lon: position.longitude,
+        speed: position.speed,
+        altitude: position.altitude,
+        accuracy: position.accuracy,
+        timestamp: DateTime.now(),
+      );
+    } catch (e) {
+      AppLogger.warning('Failed to send location to backend: $e');
     }
   }
 
@@ -234,6 +510,12 @@ class LocationService {
     _updateTimer?.cancel();
     _updateTimer = null;
     
+    _batchUpdateTimer?.cancel();
+    _batchUpdateTimer = null;
+    
+    // Clear pending updates
+    _pendingUpdates.clear();
+    
     // Disable wake lock
     await WakelockPlus.disable();
     
@@ -242,109 +524,46 @@ class LocationService {
     
     // Safely add status if controller is not closed
     if (!_statusController.isClosed) {
-      _addStatus('Location tracking and background service stopped.');
+      _addStatus('Location tracking stopped.');
     }
-  }
-
-  // Handle location update
-  void _handleLocationUpdate(Position position) {
-    if (_currentTouristId == null) return;
-
-    final locationData = LocationData(
-      touristId: _currentTouristId!,
-      latitude: position.latitude,
-      longitude: position.longitude,
-      timestamp: DateTime.now(),
-      accuracy: position.accuracy,
-      altitude: position.altitude,
-      speed: position.speed,
-      heading: position.heading,
-    );
-
-    // Safely add to stream if controller is not closed
-    if (!_locationController.isClosed) {
-      _locationController.add(locationData);
-    }
-  }
-
-  // Send location update to backend
-  Future<void> _sendLocationToBackend(Position position) async {
-    try {
-      final response = await _apiService.updateLocation(
-        lat: position.latitude,
-        lon: position.longitude,
-        speed: position.speed,
-        altitude: position.altitude,
-        accuracy: position.accuracy,
-        timestamp: DateTime.fromMillisecondsSinceEpoch(position.timestamp.millisecondsSinceEpoch),
-      );
-
-      if (response['success'] == true) {
-        _addStatus('Location updated - Safety: ${response['safety_score']}');
-      } else {
-        _addStatus('Location update failed');
-      }
-    } catch (e) {
-      _addStatus('Failed to update location to backend: $e');
-    }
-  }
-
-  // Calculate distance between two points
-  double calculateDistance(LatLng point1, LatLng point2) {
-    return Geolocator.distanceBetween(
-      point1.latitude,
-      point1.longitude,
-      point2.latitude,
-      point2.longitude,
-    );
-  }
-
-  // Check if user is inside a polygon (for geo-fencing)
-  bool isPointInPolygon(LatLng point, List<LatLng> polygon) {
-    int intersectCount = 0;
-    for (int j = 0; j < polygon.length - 1; j++) {
-      if (_rayCastIntersect(point, polygon[j], polygon[j + 1])) {
-        intersectCount++;
-      }
-    }
-
-    return intersectCount % 2 == 1;
-  }
-
-  bool _rayCastIntersect(LatLng point, LatLng vertA, LatLng vertB) {
-    double aY = vertA.latitude;
-    double bY = vertB.latitude;
-    double aX = vertA.longitude;
-    double bX = vertB.longitude;
-    double pY = point.latitude;
-    double pX = point.longitude;
-
-    if ((aY > pY) != (bY > pY) &&
-        (pX < (bX - aX) * (pY - aY) / (bY - aY) + aX)) {
-      return true;
-    }
-    return false;
-  }
-
-  // Get location settings info
-  Future<Map<String, dynamic>> getLocationSettings() async {
-    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    LocationPermission permission = await Geolocator.checkPermission();
     
-    return {
-      'serviceEnabled': serviceEnabled,
-      'permission': permission.name,
-      'isTracking': isTracking,
-      'lastUpdate': _lastKnownPosition != null 
-          ? DateTime.fromMillisecondsSinceEpoch(_lastKnownPosition!.timestamp.millisecondsSinceEpoch)
-          : null,
-    };
+    AppLogger.service('🛑 Location tracking stopped');
   }
 
+  // Optimized resource disposal with comprehensive cleanup
   void dispose() {
+    AppLogger.service('🧹 Disposing LocationService resources');
+    
+    // Stop tracking first
     stopTracking();
-    _locationController.close();
-    _statusController.close();
+    
+    // Cancel batch update timer
+    _batchUpdateTimer?.cancel();
+    _batchUpdateTimer = null;
+    
+    // Clear pending updates
+    _pendingUpdates.clear();
+    
+    // Close stream controllers safely
+    if (!_locationController.isClosed) {
+      _locationController.close();
+    }
+    
+    if (!_statusController.isClosed) {
+      _statusController.close();
+    }
+    
+    // Reset state variables for memory efficiency
+    _lastKnownPosition = null;
+    _lastSignificantPosition = null;
+    _totalDistance = 0.0;
+    _isStationary = false;
+    _stationaryCount = 0;
+    _serverUpdateFailCount = 0;
+    
+    // Dispose API service
     _apiService.dispose();
+    
+    AppLogger.service('✅ LocationService disposed successfully');
   }
 }

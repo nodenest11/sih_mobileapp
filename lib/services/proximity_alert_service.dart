@@ -83,18 +83,66 @@ class ProximityAlertService {
   final FlutterLocalNotificationsPlugin _notificationsPlugin = 
       FlutterLocalNotificationsPlugin();
 
-  // Alert tracking
+  // Enhanced alert tracking with debouncing
   final Set<int> _acknowledgedPanicAlerts = {}; // Track shown panic alerts
   final Set<String> _acknowledgedZones = {}; // Track shown zone alerts
+  final Map<String, DateTime> _lastAlertTimes = {}; // Debouncing timestamps
+  final Map<String, Timer> _alertDebounceTimers = {}; // Individual debounce timers
+  
   Timer? _monitoringTimer;
   bool _isMonitoring = false;
   String? _currentTouristId; // Current user's tourist ID to exclude own alerts
-
-  // Stream for proximity events
+  
+  // Debouncing configuration
+  static const Duration _alertDebounceTime = Duration(seconds: 30);
+  static const Duration _criticalAlertDebounceTime = Duration(seconds: 10);
+  static const int _maxAlertsPerSession = 20;
+  
+  // Stream for proximity events with enhanced control
   StreamController<ProximityAlertEvent>? _eventController;
   Stream<ProximityAlertEvent> get events {
     _eventController ??= StreamController<ProximityAlertEvent>.broadcast();
     return _eventController!.stream;
+  }
+  
+  /// Check if alert should be debounced
+  bool _shouldDebounceAlert(String alertKey, String severity) {
+    final now = DateTime.now();
+    final lastAlertTime = _lastAlertTimes[alertKey];
+    
+    if (lastAlertTime == null) {
+      return false; // First time seeing this alert
+    }
+    
+    final debounceTime = severity == 'critical' 
+        ? _criticalAlertDebounceTime 
+        : _alertDebounceTime;
+    
+    final timeSinceLastAlert = now.difference(lastAlertTime);
+    final shouldDebounce = timeSinceLastAlert < debounceTime;
+    
+    if (shouldDebounce) {
+      AppLogger.service('🔇 Alert debounced: $alertKey (${timeSinceLastAlert.inSeconds}s ago)');
+    }
+    
+    return shouldDebounce;
+  }
+  
+  /// Record alert time for debouncing
+  void _recordAlertTime(String alertKey) {
+    _lastAlertTimes[alertKey] = DateTime.now();
+    
+    // Clean up old entries to prevent memory leaks
+    if (_lastAlertTimes.length > _maxAlertsPerSession) {
+      final sortedEntries = _lastAlertTimes.entries.toList()
+        ..sort((a, b) => a.value.compareTo(b.value));
+      
+      // Remove oldest 25% of entries
+      final toRemove = sortedEntries.take(_maxAlertsPerSession ~/ 4);
+      for (final entry in toRemove) {
+        _lastAlertTimes.remove(entry.key);
+      }
+    }
   }
 
   // Stream for real-time location updates

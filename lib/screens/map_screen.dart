@@ -47,6 +47,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   bool _isLoading = true;
   bool _isTrackingUser = true;
   double _currentZoom = 13.0;
+  bool _isMapReady = false; // Track map readiness
   
   // Heatmap & zones
   List<GeospatialHeatPoint> _heatmapData = [];
@@ -141,7 +142,11 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
           _currentLocation = LatLng(position.latitude, position.longitude);
         });
         AppLogger.info('🗺️ Current location obtained: $_currentLocation');
-        _mapController.move(_currentLocation!, _currentZoom);
+        
+        // Only move map if it's ready to avoid MapController errors
+        if (_isMapReady) {
+          _safeMapMove(_currentLocation!, _currentZoom);
+        }
       } else {
         AppLogger.warning('🗺️ Unable to get current location');
       }
@@ -171,11 +176,32 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
         _currentLocation = locationData.latLng;
       });
       
-      // Auto-follow user if tracking enabled
-      if (_isTrackingUser) {
-        _mapController.move(_currentLocation!, _currentZoom);
+      // Auto-follow user if tracking enabled and map is ready
+      if (_isTrackingUser && _isMapReady) {
+        _safeMapMove(_currentLocation!, _currentZoom);
       }
     });
+  }
+
+  /// Safe map movement that handles controller readiness
+  void _safeMapMove(LatLng location, double zoom) {
+    try {
+      if (_isMapReady && mounted) {
+        _mapController.move(location, zoom);
+      }
+    } catch (e) {
+      AppLogger.warning('Map move failed: $e');
+      // Retry after a short delay
+      Future.delayed(const Duration(milliseconds: 100), () {
+        if (_isMapReady && mounted) {
+          try {
+            _mapController.move(location, zoom);
+          } catch (e) {
+            AppLogger.error('Map move retry failed: $e');
+          }
+        }
+      });
+    }
   }
 
   void _centerOnUser() async {
@@ -213,7 +239,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       }
       
       // Center map on user location
-      _mapController.move(_currentLocation!, 16.0);
+      _safeMapMove(_currentLocation!, 16.0);
       setState(() {
         _isTrackingUser = true;
         _currentZoom = 16.0;
@@ -368,7 +394,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       _isTrackingUser = false;
     });
 
-    _mapController.move(_searchedLocation!, 15.0);
+    _safeMapMove(_searchedLocation!, 15.0);
     await _calculateSafetyScore(lat, lon);
     
     _showSnackBar('📍 $name', isSuccess: true);
@@ -880,6 +906,17 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                 initialZoom: _currentZoom,
                 minZoom: 3,
                 maxZoom: 18,
+                onMapReady: () {
+                  setState(() {
+                    _isMapReady = true;
+                  });
+                  AppLogger.info('🗺️ Map is now ready');
+                  
+                  // Move to current location if available
+                  if (_currentLocation != null) {
+                    _safeMapMove(_currentLocation!, _currentZoom);
+                  }
+                },
                 onPositionChanged: (position, hasGesture) {
                   if (hasGesture) {
                     setState(() {
@@ -1568,7 +1605,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
             icon: Icons.add_rounded,
             onPressed: () {
               _currentZoom = (_currentZoom + 1).clamp(3, 18);
-              _mapController.move(_mapController.camera.center, _currentZoom);
+              _safeMapMove(_mapController.camera.center, _currentZoom);
             },
             tooltip: 'Zoom In',
           ),
@@ -1580,7 +1617,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
             icon: Icons.remove_rounded,
             onPressed: () {
               _currentZoom = (_currentZoom - 1).clamp(3, 18);
-              _mapController.move(_mapController.camera.center, _currentZoom);
+              _safeMapMove(_mapController.camera.center, _currentZoom);
             },
             tooltip: 'Zoom Out',
           ),

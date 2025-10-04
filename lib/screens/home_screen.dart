@@ -33,49 +33,357 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMixin {
-  final ApiService _apiService = ApiService();
-  final LocationService _locationService = LocationService();
-  final GeofencingService _geofencingService = GeofencingService.instance;
-  final ProximityAlertService _proximityAlertService = ProximityAlertService.instance;
+class _HomeScreenState extends State<HomeScreen> 
+    with AutomaticKeepAliveClientMixin, WidgetsBindingObserver {
   
+  // Singleton services for better memory management
+  static final ApiService _apiService = ApiService();
+  static final LocationService _locationService = LocationService();
+  static final GeofencingService _geofencingService = GeofencingService.instance;
+  static final ProximityAlertService _proximityAlertService = ProximityAlertService.instance;
+  
+  // Optimized state variables with proper types
   SafetyScore? _safetyScore;
-  List<Alert> _alerts = [];
-  List<ProximityAlertEvent> _proximityAlerts = [];
+  List<Alert> _alerts = const [];
+  List<ProximityAlertEvent> _proximityAlerts = const [];
+  
+  // Loading states with debouncing
   bool _isLoadingSafetyScore = false;
-  bool _safetyScoreOfflineMode = false;
-  int _safetyScoreRetryCount = 0;
-  static const int _maxRetryAttempts = 3;
-  Timer? _safetyScoreRefreshTimer;
   bool _isLoadingAlerts = false;
   bool _isLoadingLocation = false;
-  String _locationStatus = 'Your location will be sharing';
+  
+  // Caching and offline capabilities
+  bool _safetyScoreOfflineMode = false;
+  int _safetyScoreRetryCount = 0;
+  static const int _maxRetryAttempts = 2; // Reduced for better UX
+  
+  // Timers and subscriptions for proper cleanup
+  Timer? _safetyScoreRefreshTimer;
+  Timer? _debounceTimer;
+  
+  // Location state optimization
+  String _locationStatus = 'Initializing...';
   Map<String, dynamic>? _currentLocationInfo;
+  
+  // Performance monitoring
+  DateTime _lastUpdate = DateTime.now();
+  static const Duration _updateThrottle = Duration(seconds: 30);
 
   @override
   void initState() {
     super.initState();
-    _initializeApp();
+    WidgetsBinding.instance.addObserver(this);
+    _initializeAppOptimized();
+  }
+  
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    switch (state) {
+      case AppLifecycleState.resumed:
+        _handleAppResumed();
+        break;
+      case AppLifecycleState.paused:
+        _handleAppPaused();
+        break;
+      case AppLifecycleState.detached:
+        _handleAppDetached();
+        break;
+      default:
+        break;
+    }
   }
 
-  Future<void> _initializeApp() async {
-    // First, initialize services and auth
-    await _initializeServices();
+  /// Optimized app initialization with parallel loading and error recovery
+  Future<void> _initializeAppOptimized() async {
+    try {
+      // Initialize core services first
+      await _initializeServicesOptimized();
+      
+      // Load data in parallel for better performance
+      await Future.wait([
+        _loadSafetyScoreOptimized(),
+        _loadAlertsOptimized(),
+        _getCurrentLocationOptimized(),
+      ], eagerError: false); // Continue even if some fail
+      
+      // Initialize monitoring services after data load
+      _initializeGeofencingOptimized();
+      _initializeProximityAlertsOptimized();
+      
+    } catch (e) {
+      AppLogger.error('App initialization failed: $e');
+      _handleInitializationError(e);
+    }
+  }
+
+  /// Optimized lifecycle management methods
+  void _handleAppResumed() {
+    AppLogger.info('App resumed - refreshing critical data');
+    if (_shouldRefreshData()) {
+      _refreshCriticalData();
+    }
+  }
+
+  void _handleAppPaused() {
+    AppLogger.info('App paused - optimizing resources');
+    _debounceTimer?.cancel();
+    // Keep essential services running but reduce frequency
+  }
+
+  void _handleAppDetached() {
+    AppLogger.info('App detached - cleaning up resources');
+    _safetyScoreRefreshTimer?.cancel();
+    _debounceTimer?.cancel();
+  }
+
+  void _handleInitializationError(dynamic error) {
+    AppLogger.error('Initialization error handled: $error');
+    if (mounted) {
+      setState(() {
+        _locationStatus = 'Initialization failed - retrying...';
+      });
+      // Retry initialization after delay
+      Future.delayed(const Duration(seconds: 3), () {
+        if (mounted) _initializeAppOptimized();
+      });
+    }
+  }
+
+  bool _shouldRefreshData() {
+    final now = DateTime.now();
+    return now.difference(_lastUpdate) > _updateThrottle;
+  }
+
+  void _refreshCriticalData() {
+    _lastUpdate = DateTime.now();
+    _loadSafetyScoreOptimized();
+    _getCurrentLocationOptimized();
+  }
+
+  /// Optimized service initialization with better error handling
+  Future<void> _initializeServicesOptimized() async {
+    try {
+      // Initialize API service with retry logic
+      await _apiService.initializeAuth();
+      
+      // Start location tracking with optimization
+      await _locationService.startTracking();
+      
+      // Listen to location updates with debouncing
+      _locationService.statusStream.listen((status) {
+        _debounceLocationUpdate(status);
+      });
+      
+      AppLogger.service('✅ Core services initialized successfully');
+    } catch (e) {
+      AppLogger.error('Service initialization failed: $e');
+      rethrow;
+    }
+  }
+
+  /// Enhanced location status debouncing with priority handling
+  void _debounceLocationUpdate(String status) {
+    // Cancel existing timer
+    _debounceTimer?.cancel();
     
-    // Then load data that requires authentication
-    _loadSafetyScore();
-    _loadAlerts();
-    _getCurrentLocation();
-    _initializeGeofencing();
-    _initializeProximityAlerts();
+    // Handle critical status updates immediately
+    final criticalStatuses = {
+      'Location permission required',
+      'Location services disabled',
+      'Location permission denied',
+      'Initialization failed'
+    };
+    
+    if (criticalStatuses.any((critical) => status.contains(critical))) {
+      // Update critical status immediately
+      if (mounted) {
+        setState(() {
+          _locationStatus = status;
+        });
+      }
+      AppLogger.warning('🚨 Critical location status: $status');
+      return;
+    }
+    
+    // Debounce non-critical updates
+    _debounceTimer = Timer(const Duration(milliseconds: 500), () {
+      if (mounted) {
+        setState(() {
+          _locationStatus = status;
+        });
+      }
+    });
+  }
+
+  /// Optimized data loading methods
+  Future<void> _loadSafetyScoreOptimized() async {
+    if (_isLoadingSafetyScore) return;
+    
+    try {
+      await _loadSafetyScore();
+    } catch (e) {
+      AppLogger.warning('Safety score loading failed, using cache: $e');
+    }
+  }
+
+  Future<void> _loadAlertsOptimized() async {
+    if (_isLoadingAlerts) return;
+    
+    try {
+      await _loadAlerts();
+    } catch (e) {
+      AppLogger.warning('Alerts loading failed: $e');
+    }
+  }
+
+  Future<void> _getCurrentLocationOptimized() async {
+    if (_isLoadingLocation) return;
+    
+    try {
+      await _getCurrentLocation();
+    } catch (e) {
+      AppLogger.warning('Location loading failed: $e');
+    }
+  }
+
+  Future<void> _initializeGeofencingOptimized() async {
+    try {
+      // Start geofencing monitoring
+      await _geofencingService.startMonitoring();
+      
+      // Listen to geofence events and show alerts
+      _geofencingService.events.listen((event) {
+        if (mounted) {
+          _showGeofenceAlert(event.zone, event.eventType);
+        }
+      });
+      AppLogger.service('✅ Geofencing monitoring initialized');
+    } catch (e) {
+      AppLogger.warning('Geofencing initialization failed: $e');
+    }
+  }
+
+  Future<void> _initializeProximityAlertsOptimized() async {
+    try {
+      // Initialize and start proximity alert service
+      await _proximityAlertService.initialize();
+      
+      // Set current tourist ID to exclude own alerts - ensure it's a string
+      final touristId = widget.tourist.id.toString().trim();
+      AppLogger.info('🆔 Setting proximity alert tourist ID: "$touristId" (from: "${widget.tourist.id}")');
+      _proximityAlertService.setCurrentTouristId(touristId);
+      
+      await _proximityAlertService.startMonitoring();
+      
+      // Debug current state
+      _proximityAlertService.debugCurrentState();
+      
+      // Listen to proximity alert events with debouncing
+      _proximityAlertService.events.listen((event) {
+        if (mounted) {
+          _debounceProximityAlert(event);
+        }
+      });
+      
+      AppLogger.service('✅ Proximity alerts monitoring initialized');
+    } catch (e) {
+      AppLogger.warning('Proximity alerts initialization failed: $e');
+    }
+  }
+  
+  /// Enhanced proximity alert handling with smart debouncing and memory management
+  Timer? _proximityAlertDebounceTimer;
+  final List<ProximityAlertEvent> _pendingProximityAlerts = [];
+  static const Duration _proximityDebounceTime = Duration(milliseconds: 800);
+  
+  void _debounceProximityAlert(ProximityAlertEvent event) {
+    // Add to pending list
+    _pendingProximityAlerts.add(event);
+    
+    // Cancel existing timer and set new one
+    _proximityAlertDebounceTimer?.cancel();
+    _proximityAlertDebounceTimer = Timer(_proximityDebounceTime, () {
+      _processPendingProximityAlerts();
+    });
+  }
+  
+  /// Process all pending proximity alerts in batch
+  void _processPendingProximityAlerts() {
+    if (_pendingProximityAlerts.isEmpty) return;
+    
+    final alertsToProcess = List<ProximityAlertEvent>.from(_pendingProximityAlerts);
+    _pendingProximityAlerts.clear();
+    
+    setState(() {
+      for (final event in alertsToProcess) {
+        final alertId = event.metadata?['alert_id'];
+        final isResolved = event.metadata?['resolved'] == true;
+        
+        // Remove if resolved
+        if (isResolved) {
+          _proximityAlerts.removeWhere((e) => 
+              e.metadata?['alert_id'] == alertId);
+          AppLogger.info('✅ Removed resolved alert from home screen: $alertId');
+        } else {
+          // Check for duplicates more efficiently
+          final existingIndex = _proximityAlerts.indexWhere(
+            (e) => e.metadata?['alert_id'] == alertId,
+          );
+          
+          if (existingIndex == -1) {
+            // Add new unresolved alert at the beginning
+            _proximityAlerts.insert(0, event);
+            AppLogger.info('🚨 Added new proximity alert: $alertId');
+          } else {
+            // Update existing alert with newer data
+            _proximityAlerts[existingIndex] = event;
+            AppLogger.info('🔄 Updated existing proximity alert: $alertId');
+          }
+        }
+      }
+      
+      // Maintain memory efficiency - keep only last 15 alerts
+      if (_proximityAlerts.length > 15) {
+        final removed = _proximityAlerts.length - 15;
+        _proximityAlerts.removeRange(15, _proximityAlerts.length);
+        AppLogger.info('🧹 Cleaned up $removed old proximity alerts');
+      }
+    });
+    
+    // Show dialog for critical alerts (only if not resolved)
+    final criticalAlerts = alertsToProcess.where(
+      (event) => event.severity == 'critical' && event.metadata?['resolved'] != true,
+    );
+    
+    if (criticalAlerts.isNotEmpty) {
+      // Show only the most recent critical alert to avoid dialog spam
+      final mostRecentCritical = criticalAlerts.last;
+      _showProximityAlertDialog(mostRecentCritical);
+    }
   }
 
   @override
   void dispose() {
+    AppLogger.info('🧹 Disposing HomeScreen resources');
+    
+    // Cancel all timers and subscriptions
     _safetyScoreRefreshTimer?.cancel();
+    _debounceTimer?.cancel();
+    _proximityAlertDebounceTimer?.cancel();
+    
+    // Clean up pending alerts
+    _pendingProximityAlerts.clear();
+    
+    // Clean up services properly
     _locationService.dispose();
     _geofencingService.stopMonitoring();
     _proximityAlertService.stopMonitoring();
+    
+    // Remove observers
+    WidgetsBinding.instance.removeObserver(this);
+    
+    AppLogger.info('✅ HomeScreen disposed successfully');
     super.dispose();
   }
 
@@ -130,82 +438,7 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
     }
   }
 
-  Future<void> _initializeServices() async {
-    // Initialize API service and load auth token first
-    await _apiService.initializeAuth();
-    
-    // Start location tracking
-    await _locationService.startTracking();
-    
-    // Listen to location status updates
-    _locationService.statusStream.listen((status) {
-      if (mounted) {
-        setState(() {
-          _locationStatus = status;
-        });
-      }
-    });
-  }
 
-  Future<void> _initializeGeofencing() async {
-    // Start geofencing monitoring
-    await _geofencingService.startMonitoring();
-    
-    // Listen to geofence events and show alerts
-    _geofencingService.events.listen((event) {
-      if (mounted) {
-        _showGeofenceAlert(event.zone, event.eventType);
-      }
-    });
-  }
-  
-  Future<void> _initializeProximityAlerts() async {
-    // Initialize and start proximity alert service
-    await _proximityAlertService.initialize();
-    
-    // Set current tourist ID to exclude own alerts - ensure it's a string
-    final touristId = widget.tourist.id.toString().trim();
-    AppLogger.info('🆔 Setting proximity alert tourist ID: "$touristId" (from: "${widget.tourist.id}")');
-    _proximityAlertService.setCurrentTouristId(touristId);
-    
-    await _proximityAlertService.startMonitoring();
-    
-    // Debug current state
-    _proximityAlertService.debugCurrentState();
-    
-    // Listen to proximity alert events
-    _proximityAlertService.events.listen((event) {
-      if (mounted) {
-        setState(() {
-          // Add to list if not already present and not resolved
-          final alertId = event.metadata?['alert_id'];
-          final isResolved = event.metadata?['resolved'] == true;
-          
-          // Remove if resolved
-          if (isResolved) {
-            _proximityAlerts.removeWhere((e) => 
-                e.metadata?['alert_id'] == alertId);
-            AppLogger.info('✅ Removed resolved alert from home screen: $alertId');
-          } else if (!_proximityAlerts.any((e) => 
-              e.metadata?['alert_id'] == alertId)) {
-            // Add new unresolved alert
-            _proximityAlerts.insert(0, event);
-            // Keep only last 10 alerts
-            if (_proximityAlerts.length > 10) {
-              _proximityAlerts = _proximityAlerts.sublist(0, 10);
-            }
-          }
-        });
-        
-        // Show dialog for critical alerts (only if not resolved)
-        if (event.severity == 'critical' && event.metadata?['resolved'] != true) {
-          _showProximityAlertDialog(event);
-        }
-      }
-    });
-    
-    AppLogger.service('✅ Proximity alerts monitoring initialized');
-  }
   
   void _showGeofenceAlert(RestrictedZone zone, GeofenceEventType eventType) {
     showDialog(

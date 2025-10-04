@@ -25,6 +25,7 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen>
   List<LocationData> _filteredLocations = [];
   bool _isLoading = false; // Start false to show map immediately
   bool _hasLoadedOnce = false; // Track if data has been loaded
+  bool _isMapReady = false; // Track map readiness
   String _selectedFilter = 'Today';
   int? _selectedLocationIndex;
   bool _showPathLine = true;
@@ -45,6 +46,43 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen>
   void dispose() {
     _tabController.dispose();
     super.dispose();
+  }
+
+  /// Safe map movement that handles controller readiness
+  void _safeMapMove(LatLng location, double zoom) {
+    try {
+      if (_isMapReady && mounted) {
+        _mapController.move(location, zoom);
+      }
+    } catch (e) {
+      print('Map move failed: $e');
+      // Retry after a short delay
+      Future.delayed(const Duration(milliseconds: 100), () {
+        if (_isMapReady && mounted) {
+          try {
+            _mapController.move(location, zoom);
+          } catch (e) {
+            print('Map move retry failed: $e');
+          }
+        }
+      });
+    }
+  }
+
+  /// Safe fit bounds method
+  void _safeFitBounds(List<LatLng> points) {
+    try {
+      if (_isMapReady && mounted && points.isNotEmpty) {
+        _mapController.fitCamera(
+          CameraFit.bounds(
+            bounds: LatLngBounds.fromPoints(points),
+            padding: const EdgeInsets.all(50),
+          ),
+        );
+      }
+    } catch (e) {
+      print('Map fit bounds failed: $e');
+    }
   }
 
   Future<void> _loadLocationHistory() async {
@@ -70,7 +108,7 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen>
         // Center map on latest location if available (only on first load)
         if (_filteredLocations.isNotEmpty && !_hasLoadedOnce) {
           final latest = _filteredLocations.first;
-          _mapController.move(LatLng(latest.latitude, latest.longitude), 15.0);
+          _safeMapMove(LatLng(latest.latitude, latest.longitude), 15.0);
         }
         
         // Mark as loaded after state update
@@ -302,7 +340,7 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen>
               child: ElevatedButton.icon(
                 onPressed: () {
                   Navigator.pop(context);
-                  _mapController.move(
+                  _safeMapMove(
                     LatLng(location.latitude, location.longitude),
                     17.0,
                   );
@@ -602,6 +640,18 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen>
                     _filteredLocations.first.longitude)
                 : _defaultCenter, // Use constant default center
             initialZoom: _filteredLocations.isNotEmpty ? 15.0 : 12.0,
+            onMapReady: () {
+              setState(() {
+                _isMapReady = true;
+              });
+              print('🗺️ Location History Map is now ready');
+              
+              // Center on latest location if available and not loaded once
+              if (_filteredLocations.isNotEmpty && !_hasLoadedOnce) {
+                final latest = _filteredLocations.first;
+                _safeMapMove(LatLng(latest.latitude, latest.longitude), 15.0);
+              }
+            },
           ),
           children: [
             TileLayer(
@@ -696,15 +746,11 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen>
                     if (loc.longitude > maxLon) maxLon = loc.longitude;
                   }
                   
-                  _mapController.fitCamera(
-                    CameraFit.bounds(
-                      bounds: LatLngBounds(
-                        LatLng(minLat, minLon),
-                        LatLng(maxLat, maxLon),
-                      ),
-                      padding: const EdgeInsets.all(50),
-                    ),
-                  );
+                  final points = [
+                    LatLng(minLat, minLon),
+                    LatLng(maxLat, maxLon),
+                  ];
+                  _safeFitBounds(points);
                 },
                 backgroundColor: Colors.white,
                 child: Icon(Icons.fit_screen, color: AppColors.primary),
