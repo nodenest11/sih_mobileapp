@@ -3,13 +3,16 @@ import '../utils/logger.dart';
 
 /// Settings Manager - Centralized app settings management
 /// Handles all user preferences and syncs across the app
+/// Thread-safe implementation with proper initialization handling
 class SettingsManager {
   static final SettingsManager _instance = SettingsManager._internal();
   factory SettingsManager() => _instance;
   SettingsManager._internal();
 
-  // SharedPreferences instance
+  // SharedPreferences instance with thread safety
   SharedPreferences? _prefs;
+  bool _isInitializing = false;
+  bool _isInitialized = false;
 
   // Settings Keys
   static const String keyLocationTracking = 'location_tracking';
@@ -20,6 +23,7 @@ class SettingsManager {
   static const String keyGeofenceAlerts = 'geofence_alerts';
   static const String keyBatteryOptimization = 'battery_optimization';
   static const String keyUpdateInterval = 'update_interval';
+  static const String keyLocationUpdateInterval = 'location_update_interval';
   static const String keyNotificationSound = 'notification_sound';
   static const String keyNotificationVibration = 'notification_vibration';
   static const String keyAutoStartTracking = 'auto_start_tracking';
@@ -39,6 +43,7 @@ class SettingsManager {
   static const bool defaultGeofenceAlerts = true;
   static const bool defaultBatteryOptimization = false;
   static const String defaultUpdateInterval = '10';
+  static const int defaultLocationUpdateInterval = 15; // minutes
   static const bool defaultNotificationSound = true;
   static const bool defaultNotificationVibration = true;
   static const bool defaultAutoStartTracking = true;
@@ -49,16 +54,47 @@ class SettingsManager {
   static const bool defaultShowResolvedAlerts = false;
   static const bool defaultOfflineMode = false;
 
-  /// Initialize settings manager
+  /// Initialize settings manager with thread safety
   Future<void> initialize() async {
-    _prefs = await SharedPreferences.getInstance();
-    AppLogger.info('✅ Settings Manager initialized');
+    if (_isInitialized) {
+      AppLogger.info('Settings Manager already initialized');
+      return;
+    }
+    
+    if (_isInitializing) {
+      // Wait for existing initialization to complete
+      while (_isInitializing && !_isInitialized) {
+        await Future.delayed(const Duration(milliseconds: 10));
+      }
+      return;
+    }
+    
+    _isInitializing = true;
+    try {
+      _prefs = await SharedPreferences.getInstance();
+      _isInitialized = true;
+      AppLogger.info('✅ Settings Manager initialized');
+    } catch (e) {
+      AppLogger.error('❌ Settings Manager initialization failed: $e');
+      rethrow;
+    } finally {
+      _isInitializing = false;
+    }
   }
 
-  /// Get SharedPreferences instance
+  /// Get SharedPreferences instance with automatic initialization
+  Future<SharedPreferences> get safePrefs async {
+    if (!_isInitialized) {
+      await initialize();
+    }
+    return _prefs!;
+  }
+
+  /// Get SharedPreferences instance (legacy method - synchronous)
+  /// @deprecated Use safePrefs for better thread safety
   SharedPreferences get prefs {
     if (_prefs == null) {
-      throw Exception('SettingsManager not initialized. Call initialize() first.');
+      throw Exception('SettingsManager not initialized. Call initialize() first or use safePrefs.');
     }
     return _prefs!;
   }
@@ -82,6 +118,14 @@ class SettingsManager {
   }
 
   int get updateIntervalSeconds => int.tryParse(updateInterval) ?? 10;
+
+  int get locationUpdateInterval => 
+      prefs.getInt(keyLocationUpdateInterval) ?? defaultLocationUpdateInterval;
+  
+  Future<void> setLocationUpdateInterval(int minutes) async {
+    await prefs.setInt(keyLocationUpdateInterval, minutes);
+    AppLogger.info('📍 Location update interval: ${minutes} minutes');
+  }
 
   bool get batteryOptimization => 
       prefs.getBool(keyBatteryOptimization) ?? defaultBatteryOptimization;
@@ -211,47 +255,176 @@ class SettingsManager {
     AppLogger.info('📴 Offline mode: ${value ? "ON" : "OFF"}');
   }
 
+  // ========== THREAD-SAFE GENERIC METHODS ==========
+
+  /// Thread-safe generic getter for any type
+  Future<T?> getValue<T>(String key) async {
+    final prefs = await safePrefs;
+    switch (T) {
+      case bool:
+        return prefs.getBool(key) as T?;
+      case int:
+        return prefs.getInt(key) as T?;
+      case double:
+        return prefs.getDouble(key) as T?;
+      case String:
+        return prefs.getString(key) as T?;
+      case const (List<String>):
+        return prefs.getStringList(key) as T?;
+      default:
+        throw ArgumentError('Unsupported type: $T');
+    }
+  }
+
+  /// Thread-safe generic setter for any type
+  Future<bool> setValue<T>(String key, T value) async {
+    final prefs = await safePrefs;
+    switch (T) {
+      case bool:
+        return await prefs.setBool(key, value as bool);
+      case int:
+        return await prefs.setInt(key, value as int);
+      case double:
+        return await prefs.setDouble(key, value as double);
+      case String:
+        return await prefs.setString(key, value as String);
+      case const (List<String>):
+        return await prefs.setStringList(key, value as List<String>);
+      default:
+        throw ArgumentError('Unsupported type: $T');
+    }
+  }
+
+  /// Thread-safe generic getter with default value
+  Future<T> getValueWithDefault<T>(String key, T defaultValue) async {
+    final value = await getValue<T>(key);
+    return value ?? defaultValue;
+  }
+
+  /// Thread-safe boolean getter
+  Future<bool> getBoolSafe(String key, {bool defaultValue = false}) async {
+    return await getValueWithDefault<bool>(key, defaultValue);
+  }
+
+  /// Thread-safe integer getter
+  Future<int> getIntSafe(String key, {int defaultValue = 0}) async {
+    return await getValueWithDefault<int>(key, defaultValue);
+  }
+
+  /// Thread-safe string getter
+  Future<String> getStringSafe(String key, {String defaultValue = ''}) async {
+    return await getValueWithDefault<String>(key, defaultValue);
+  }
+
+  /// Thread-safe boolean setter
+  Future<void> setBoolSafe(String key, bool value) async {
+    await setValue<bool>(key, value);
+    AppLogger.info('⚙️ Setting updated: $key = $value');
+  }
+
+  /// Thread-safe integer setter
+  Future<void> setIntSafe(String key, int value) async {
+    await setValue<int>(key, value);
+    AppLogger.info('⚙️ Setting updated: $key = $value');
+  }
+
+  /// Thread-safe string setter
+  Future<void> setStringSafe(String key, String value) async {
+    await setValue<String>(key, value);
+    AppLogger.info('⚙️ Setting updated: $key = $value');
+  }
+
   // ========== UTILITY METHODS ==========
 
-  /// Reset all settings to defaults
+  /// Reset all settings to defaults (thread-safe)
   Future<void> resetToDefaults() async {
-    await prefs.clear();
+    final prefsInstance = await safePrefs;
+    await prefsInstance.clear();
     AppLogger.warning('🔄 All settings reset to defaults');
   }
 
-  /// Get all settings as a map (for debugging)
-  Map<String, dynamic> getAllSettings() {
+  /// Get all settings as a map (thread-safe for debugging)
+  Future<Map<String, dynamic>> getAllSettings() async {
+    final prefsInstance = await safePrefs;
     return {
-      'location_tracking': locationTracking,
-      'push_notifications': pushNotifications,
-      'sos_alerts': sosAlerts,
-      'safety_alerts': safetyAlerts,
-      'proximity_alerts': proximityAlerts,
-      'geofence_alerts': geofenceAlerts,
-      'battery_optimization': batteryOptimization,
-      'update_interval': updateInterval,
-      'notification_sound': notificationSound,
-      'notification_vibration': notificationVibration,
-      'auto_start_tracking': autoStartTracking,
-      'dark_mode': darkMode,
-      'language': language,
-      'map_type': mapType,
-      'proximity_radius': proximityRadius,
-      'show_resolved_alerts': showResolvedAlerts,
-      'offline_mode': offlineMode,
+      'location_tracking': prefsInstance.getBool(keyLocationTracking) ?? defaultLocationTracking,
+      'push_notifications': prefsInstance.getBool(keyPushNotifications) ?? defaultPushNotifications,
+      'sos_alerts': prefsInstance.getBool(keySosAlerts) ?? defaultSosAlerts,
+      'safety_alerts': prefsInstance.getBool(keySafetyAlerts) ?? defaultSafetyAlerts,
+      'proximity_alerts': prefsInstance.getBool(keyProximityAlerts) ?? defaultProximityAlerts,
+      'geofence_alerts': prefsInstance.getBool(keyGeofenceAlerts) ?? defaultGeofenceAlerts,
+      'battery_optimization': prefsInstance.getBool(keyBatteryOptimization) ?? defaultBatteryOptimization,
+      'update_interval': prefsInstance.getString(keyUpdateInterval) ?? defaultUpdateInterval,
+      'notification_sound': prefsInstance.getBool(keyNotificationSound) ?? defaultNotificationSound,
+      'notification_vibration': prefsInstance.getBool(keyNotificationVibration) ?? defaultNotificationVibration,
+      'auto_start_tracking': prefsInstance.getBool(keyAutoStartTracking) ?? defaultAutoStartTracking,
+      'dark_mode': prefsInstance.getBool(keyDarkMode) ?? defaultDarkMode,
+      'language': prefsInstance.getString(keyLanguage) ?? 'en',
+      'map_type': prefsInstance.getString(keyMapType) ?? 'OpenStreetMap',
+      'proximity_radius': prefsInstance.getInt(keyProximityRadius) ?? 100,
+      'show_resolved_alerts': prefsInstance.getBool(keyShowResolvedAlerts) ?? false,
+      'offline_mode': prefsInstance.getBool(keyOfflineMode) ?? false,
     };
   }
 
-  /// Export settings as JSON string
-  String exportSettings() {
-    return getAllSettings().toString();
+  /// Export settings as JSON string (thread-safe)
+  Future<String> exportSettings() async {
+    final settings = await getAllSettings();
+    return settings.toString();
   }
 
-  /// Print all settings (debug)
-  void printAllSettings() {
+  /// Print all settings (thread-safe debug)
+  Future<void> printAllSettings() async {
     AppLogger.info('📋 Current Settings:');
-    getAllSettings().forEach((key, value) {
+    final settings = await getAllSettings();
+    settings.forEach((key, value) {
       AppLogger.info('  $key: $value');
     });
+  }
+
+  // ========== LEGACY METHODS (DEPRECATED) ==========
+  // These methods are deprecated in favor of thread-safe versions above.
+  // They use the synchronous 'prefs' getter which can cause race conditions.
+
+  /// Generic get boolean with default value
+  /// @deprecated Use getBoolSafe instead for thread safety
+  @Deprecated('Use getBoolSafe for thread safety')
+  Future<bool> getBool(String key, {bool defaultValue = false}) async {
+    return prefs.getBool(key) ?? defaultValue;
+  }
+
+  /// Generic set boolean
+  /// @deprecated Use setBoolSafe instead for thread safety
+  @Deprecated('Use setBoolSafe for thread safety')
+  Future<void> setBool(String key, bool value) async {
+    await prefs.setBool(key, value);
+  }
+
+  /// Generic get integer with default value
+  /// @deprecated Use getIntSafe instead for thread safety
+  @Deprecated('Use getIntSafe for thread safety')
+  Future<int> getInt(String key, {int defaultValue = 0}) async {
+    return prefs.getInt(key) ?? defaultValue;
+  }
+
+  /// Generic set integer
+  /// @deprecated Use setIntSafe instead for thread safety
+  @Deprecated('Use setIntSafe for thread safety')  
+  Future<void> setInt(String key, int value) async {
+    await prefs.setInt(key, value);
+  }
+
+  /// Generic get string with default value
+  /// @deprecated Use getStringSafe instead for thread safety
+  @Deprecated('Use getStringSafe for thread safety')
+  Future<String> getString(String key, {String defaultValue = ''}) async {
+    return prefs.getString(key) ?? defaultValue;
+  }
+
+  /// Generic set string
+  /// @deprecated Use setStringSafe instead for thread safety
+  @Deprecated('Use setStringSafe for thread safety')
+  Future<void> setString(String key, String value) async {
+    await prefs.setString(key, value);
   }
 }

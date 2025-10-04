@@ -15,9 +15,12 @@ import 'map_screen.dart';
 import '../widgets/safety_score_widget.dart';
 import '../widgets/geofence_alert.dart';
 import '../widgets/proximity_alert_widget.dart';
-import 'emergency_contacts_screen.dart';
+
 import 'efir_form_screen.dart';
 import 'sos_countdown_screen.dart';
+import 'safety_tips_screen.dart';
+import 'danger_zones_screen.dart';
+import 'tourist_services_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   final Tourist tourist;
@@ -727,12 +730,44 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Future<void> _loadAlerts() async {
-    // Individual alerts are handled through push notifications
-    // Alert history can be accessed through dedicated screens
-    setState(() {
-      _isLoadingAlerts = false;
-      _alerts = [];
-    });
+    if (_isLoadingAlerts) return;
+    
+    setState(() => _isLoadingAlerts = true);
+    
+    try {
+      // Get current location for area-based alerts
+      final position = await _locationService.getCurrentLocation();
+      
+      List<Alert> activeAlerts = [];
+      if (position != null) {
+        // Load active alerts in the user's area
+        activeAlerts = await _apiService.getActiveAlerts(
+          latitude: position.latitude,
+          longitude: position.longitude,
+          radiusKm: 15.0, // 15km radius for home screen alerts
+        );
+      } else {
+        // Load active alerts without location filtering
+        activeAlerts = await _apiService.getActiveAlerts();
+      }
+      
+      if (mounted) {
+        setState(() {
+          _alerts = activeAlerts;
+          _isLoadingAlerts = false;
+        });
+      }
+      
+      AppLogger.info('🏠 Loaded ${activeAlerts.length} active alerts for home screen');
+    } catch (e) {
+      AppLogger.error('Failed to load alerts: $e');
+      if (mounted) {
+        setState(() {
+          _alerts = [];
+          _isLoadingAlerts = false;
+        });
+      }
+    }
   }
 
   Future<void> _handleSOSPress() async {
@@ -1108,7 +1143,12 @@ class _HomeScreenState extends State<HomeScreen>
                 icon: Icons.shield_rounded,
                 label: 'Safety Tips',
                 onTap: () {
-                  _showSafetyTipsDialog();
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => SafetyTipsScreen(tourist: widget.tourist),
+                    ),
+                  );
                 },
               ),
               _buildSimpleActionButton(
@@ -1122,12 +1162,12 @@ class _HomeScreenState extends State<HomeScreen>
                 },
               ),
               _buildSimpleActionButton(
-                icon: Icons.contacts_rounded,
-                label: 'Emergency',
+                icon: Icons.local_hospital_rounded,
+                label: 'Services',
                 onTap: () {
                   Navigator.push(
                     context,
-                    MaterialPageRoute(builder: (context) => const EmergencyContactsScreen()),
+                    MaterialPageRoute(builder: (context) => TouristServicesScreen(tourist: widget.tourist)),
                   );
                 },
               ),
@@ -1135,7 +1175,12 @@ class _HomeScreenState extends State<HomeScreen>
                 icon: Icons.warning_amber_rounded,
                 label: 'Zones',
                 onTap: () {
-                  _showDangerZonesInfo();
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => DangerZonesScreen(tourist: widget.tourist),
+                    ),
+                  );
                 },
               ),
               _buildSimpleActionButton(
@@ -1464,15 +1509,21 @@ class _HomeScreenState extends State<HomeScreen>
   Widget _buildAlertItem(Alert alert) {
     final color = _getAlertColor(alert.severity);
     final isUnread = !alert.isAcknowledged;
+    final isUnresolved = !alert.isResolved;
     
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: isUnread ? color.withValues(alpha: 0.05) : const Color(0xFFF8FAFC),
+        color: isUnresolved 
+            ? color.withValues(alpha: 0.08) 
+            : const Color(0xFFF8FAFC),
         borderRadius: BorderRadius.circular(8),
         border: Border.all(
-          color: isUnread ? color.withValues(alpha: 0.2) : const Color(0xFFE2E8F0),
+          color: isUnresolved 
+              ? color.withValues(alpha: 0.3) 
+              : const Color(0xFFE2E8F0),
+          width: isUnresolved ? 1.5 : 1,
         ),
       ),
       child: Row(
@@ -1508,6 +1559,23 @@ class _HomeScreenState extends State<HomeScreen>
                       ),
                     ),
                     const SizedBox(width: 8),
+                    if (isUnresolved)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Colors.red.shade100,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          'ACTIVE',
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.red.shade700,
+                          ),
+                        ),
+                      ),
+                    const SizedBox(width: 4),
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                       decoration: BoxDecoration(
@@ -1536,6 +1604,28 @@ class _HomeScreenState extends State<HomeScreen>
                     height: 1.4,
                   ),
                 ),
+                if (isUnresolved && alert.latitude != null && alert.longitude != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.location_on,
+                          size: 12,
+                          color: color,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          'Nearby incident - exercise caution',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w500,
+                            color: color,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
               ],
             ),
           ),
@@ -1770,117 +1860,9 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  // Tourist Safety Quick Action Dialogs
-  void _showSafetyTipsDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Row(
-          children: [
-            Icon(Icons.shield_rounded, color: Color(0xFF10B981)),
-            SizedBox(width: 8),
-            Text('Safety Tips'),
-          ],
-        ),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildTipItem('📍 Keep location services ON at all times'),
-              _buildTipItem('📱 Keep your phone charged above 20%'),
-              _buildTipItem('👥 Stay in crowded, well-lit areas'),
-              _buildTipItem('🚫 Avoid restricted zones marked in red'),
-              _buildTipItem('📞 Save emergency contacts before traveling'),
-              _buildTipItem('🗺️ Check the heatmap for dangerous areas'),
-              _buildTipItem('⚡ Use SOS button if you feel unsafe'),
-              _buildTipItem('📸 Share your location with trusted contacts'),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Got it'),
-          ),
-        ],
-      ),
-    );
-  }
 
-  void _showDangerZonesInfo() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Row(
-          children: [
-            Icon(Icons.warning_amber_rounded, color: Color(0xFFDC2626)),
-            SizedBox(width: 8),
-            Text('Danger Zones'),
-          ],
-        ),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Your current safety score: ${null}',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-              ),
-              const SizedBox(height: 16),
-              const Text('How to stay safe:', style: TextStyle(fontWeight: FontWeight.w600)),
-              const SizedBox(height: 8),
-              _buildTipItem('🔴 Red zones: High crime rate, avoid if possible'),
-              _buildTipItem('🟠 Orange zones: Moderate risk, stay alert'),
-              _buildTipItem('🟡 Yellow zones: Low-medium risk, be cautious'),
-              _buildTipItem('🟢 Green zones: Safest areas'),
-              const SizedBox(height: 12),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFEF2F2),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: const Color(0xFFDC2626).withValues(alpha: 0.3)),
-                ),
-                child: const Row(
-                  children: [
-                    Icon(Icons.info_outline, color: Color(0xFFDC2626), size: 20),
-                    SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        'Check the Map screen to view all danger zones in your area.',
-                        style: TextStyle(fontSize: 12, color: Color(0xFF991B1B)),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              // Navigate to map screen via bottom navigation
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Use bottom navigation to view Map'),
-                  duration: Duration(seconds: 2),
-                ),
-              );
-            },
-            child: const Text('View Map'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
-          ),
-        ],
-      ),
-    );
-  }
+
+
 
 
 
@@ -1962,24 +1944,7 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
-  Widget _buildTipItem(String text) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Icon(Icons.check_circle, color: Color(0xFF10B981), size: 18),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              text,
-              style: const TextStyle(fontSize: 13, height: 1.4),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+
 
 
 }

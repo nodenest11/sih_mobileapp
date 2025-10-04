@@ -21,9 +21,14 @@ class LocationService {
   static const int _activeLocationUpdateInterval = 60;  // 1 minute when active
   static const int _staticLocationUpdateInterval = 900; // 15 minutes when static
   
+  // Real-time map display intervals
+  static const int _realtimeLocationUpdateInterval = 2; // 2 seconds for map display
+  static const int _highFrequencyLocationUpdateInterval = 1; // 1 second for high accuracy mode
+  
   // Movement detection thresholds
   static const double _significantMovementThreshold = 10.0; // meters
   static const double _highSpeedThreshold = 5.0; // m/s (18 km/h)
+  static const double _realtimeMovementThreshold = 1.0; // meters for real-time updates
   
   final ApiService _apiService = ApiService();
   StreamSubscription<Position>? _positionSubscription;
@@ -42,13 +47,21 @@ class LocationService {
   int _stationaryCount = 0;
   
   final StreamController<LocationData> _locationController = StreamController<LocationData>.broadcast();
+  final StreamController<LocationData> _realtimeLocationController = StreamController<LocationData>.broadcast();
   final StreamController<String> _statusController = StreamController<String>.broadcast();
 
   Stream<LocationData> get locationStream => _locationController.stream;
+  Stream<LocationData> get realtimeLocationStream => _realtimeLocationController.stream;
   Stream<String> get statusStream => _statusController.stream;
+  
+  // Real-time tracking state
+  bool _isRealtimeMode = false;
+  Timer? _realtimeUpdateTimer;
+  Position? _lastRealtimePosition;
 
   Position? get lastKnownPosition => _lastKnownPosition;
   bool get isTracking => _positionSubscription != null || _updateTimer != null;
+  bool get isRealtimeModeActive => _isRealtimeMode;
   double get totalDistance => _totalDistance;
   Duration get sessionDuration => DateTime.now().difference(_sessionStart);
   
@@ -325,6 +338,150 @@ class LocationService {
     };
   }
 
+  /// Enable real-time location mode for map display (high frequency updates)
+  Future<void> enableRealtimeMode() async {
+    if (_isRealtimeMode) return;
+    
+    AppLogger.service('🗺️ Enabling real-time location mode for map display');
+    _isRealtimeMode = true;
+    
+    // Start high-frequency position updates for real-time map display
+    await _startRealtimeLocationUpdates();
+  }
+  
+  /// Disable real-time location mode to save battery
+  void disableRealtimeMode() {
+    if (!_isRealtimeMode) return;
+    
+    AppLogger.service('🔋 Disabling real-time location mode to save battery');
+    _isRealtimeMode = false;
+    
+    _realtimeUpdateTimer?.cancel();
+    _realtimeUpdateTimer = null;
+  }
+  
+  /// Start high-frequency location updates for real-time map display
+  Future<void> _startRealtimeLocationUpdates() async {
+    try {
+      // High accuracy location settings for real-time updates
+      const LocationSettings realtimeSettings = LocationSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 1, // Update every 1 meter of movement
+        timeLimit: Duration(seconds: 10),
+      );
+      
+      // Start adaptive real-time location stream
+      _realtimeUpdateTimer = Timer.periodic(
+        Duration(seconds: _realtimeLocationUpdateInterval),
+        (timer) async {
+          try {
+            final position = await Geolocator.getCurrentPosition(
+              locationSettings: realtimeSettings,
+            );
+            
+            // Always update for real-time map display (minimal filtering)
+            if (_shouldUpdateRealtimeLocation(position)) {
+              _handleRealtimeLocationUpdate(position);
+              
+              // Adaptive frequency based on GPS accuracy
+              _adjustRealtimeFrequency(position.accuracy);
+            }
+          } catch (e) {
+            AppLogger.warning('Real-time location update failed: $e');
+          }
+        },
+      );
+      
+      AppLogger.service('🗺️ Real-time location updates started (${_realtimeLocationUpdateInterval}s intervals)');
+    } catch (e) {
+      AppLogger.error('Failed to start real-time location updates: $e');
+    }
+  }
+  
+  /// Adjust real-time update frequency based on GPS signal quality
+  void _adjustRealtimeFrequency(double accuracy) {
+    if (!_isRealtimeMode) return;
+    
+    int newInterval;
+    if (accuracy <= 5) {
+      // Excellent GPS - use high frequency
+      newInterval = _highFrequencyLocationUpdateInterval;
+    } else if (accuracy <= 15) {
+      // Good GPS - use standard real-time frequency  
+      newInterval = _realtimeLocationUpdateInterval;
+    } else {
+      // Poor GPS - reduce frequency to save battery
+      newInterval = _realtimeLocationUpdateInterval * 2;
+    }
+    
+    // Only restart timer if interval changed significantly
+    if (newInterval != _realtimeLocationUpdateInterval && _realtimeUpdateTimer != null) {
+      _realtimeUpdateTimer?.cancel();
+      
+      _realtimeUpdateTimer = Timer.periodic(
+        Duration(seconds: newInterval),
+        (timer) async {
+          try {
+            const LocationSettings realtimeSettings = LocationSettings(
+              accuracy: LocationAccuracy.high,
+              distanceFilter: 1,
+              timeLimit: Duration(seconds: 10),
+            );
+            
+            final position = await Geolocator.getCurrentPosition(
+              locationSettings: realtimeSettings,
+            );
+            
+            if (_shouldUpdateRealtimeLocation(position)) {
+              _handleRealtimeLocationUpdate(position);
+              _adjustRealtimeFrequency(position.accuracy);
+            }
+          } catch (e) {
+            AppLogger.warning('Adaptive real-time location update failed: $e');
+          }
+        },
+      );
+      
+      AppLogger.service('🔄 Adjusted real-time frequency to ${newInterval}s based on GPS accuracy (±${accuracy.toStringAsFixed(1)}m)');
+    }
+  }
+  
+  /// Check if real-time location should be updated (minimal filtering)
+  bool _shouldUpdateRealtimeLocation(Position position) {
+    if (_lastRealtimePosition == null) return true;
+    
+    // For real-time updates, use minimal movement threshold
+    final distance = Geolocator.distanceBetween(
+      _lastRealtimePosition!.latitude,
+      _lastRealtimePosition!.longitude,
+      position.latitude,
+      position.longitude,
+    );
+    
+    // Update if moved more than 1 meter or accuracy improved significantly
+    return distance >= _realtimeMovementThreshold || 
+           position.accuracy < (_lastRealtimePosition!.accuracy - 5.0);
+  }
+  
+  /// Handle real-time location updates for map display
+  void _handleRealtimeLocationUpdate(Position position) {
+    _lastRealtimePosition = position;
+    
+    final locationData = LocationData(
+      latitude: position.latitude,
+      longitude: position.longitude,
+      timestamp: DateTime.now(),
+      accuracy: position.accuracy,
+      speed: position.speed,
+      altitude: position.altitude,
+    );
+    
+    // Send to real-time stream for map display
+    _realtimeLocationController.add(locationData);
+    
+    AppLogger.service('🗺️ Real-time location: ${position.latitude.toStringAsFixed(6)}, ${position.longitude.toStringAsFixed(6)} (±${position.accuracy.toStringAsFixed(1)}m)');
+  }
+
   /// Start optimized location tracking with smart filtering and battery efficiency
   Future<void> startTracking() async {
     if (isTracking) {
@@ -513,6 +670,9 @@ class LocationService {
     _batchUpdateTimer?.cancel();
     _batchUpdateTimer = null;
     
+    // Stop real-time mode
+    disableRealtimeMode();
+    
     // Clear pending updates
     _pendingUpdates.clear();
     
@@ -547,6 +707,10 @@ class LocationService {
     // Close stream controllers safely
     if (!_locationController.isClosed) {
       _locationController.close();
+    }
+    
+    if (!_realtimeLocationController.isClosed) {
+      _realtimeLocationController.close();
     }
     
     if (!_statusController.isClosed) {

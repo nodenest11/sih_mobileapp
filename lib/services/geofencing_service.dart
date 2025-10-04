@@ -9,6 +9,7 @@ import 'package:vibration/vibration.dart';
 import '../models/alert.dart';
 import '../utils/logger.dart';
 import 'api_service.dart';
+import 'location_transmission_service.dart';
 
 enum GeofenceEventType {
   enter,
@@ -40,6 +41,7 @@ class GeofencingService {
 
   final ApiService _apiService = ApiService();
   final FlutterLocalNotificationsPlugin _notificationsPlugin = FlutterLocalNotificationsPlugin();
+  final LocationTransmissionService _locationTransmissionService = LocationTransmissionService();
 
   List<RestrictedZone> _restrictedZones = [];
   Set<String> _currentZones = {}; // Track which zones user is currently in
@@ -160,13 +162,13 @@ class GeofencingService {
         final isInside = _isPointInPolygon(currentLocation, zone.polygonCoordinates);
         
         // Calculate distance to zone center for proximity alerts
-        final zoneCenterLat = zone.polygonCoordinates.map((p) => p.latitude).reduce((a, b) => a + b) / zone.polygonCoordinates.length;
-        final zoneCenterLng = zone.polygonCoordinates.map((p) => p.longitude).reduce((a, b) => a + b) / zone.polygonCoordinates.length;
+        // Use proper geometric centroid or fallback to center from API
+        final zoneCenter = zone.center ?? _calculatePolygonCentroid(zone.polygonCoordinates);
         final distanceToZone = Geolocator.distanceBetween(
           currentLocation.latitude,
           currentLocation.longitude,
-          zoneCenterLat,
-          zoneCenterLng,
+          zoneCenter.latitude,
+          zoneCenter.longitude,
         );
         
         if (isInside) {
@@ -281,6 +283,17 @@ class GeofencingService {
       currentLocation: location,
       timestamp: DateTime.now(),
     );
+
+    // Send immediate location update for geofence exit
+    try {
+      await _locationTransmissionService.sendGeofenceExitLocation(
+        geofenceType: zone.type.name,
+        zoneName: zone.name,
+      );
+      AppLogger.warning('📍 Geofence exit location sent for zone: ${zone.name}');
+    } catch (e) {
+      AppLogger.error('❌ Failed to send geofence exit location: $e');
+    }
 
     // Emit event
     _eventController?.add(event);
@@ -478,6 +491,57 @@ class GeofencingService {
   /// Get current zone objects
   List<RestrictedZone> get currentZones {
     return _restrictedZones.where((zone) => _currentZones.contains(zone.id)).toList();
+  }
+
+  /// Calculate the geometric centroid of a polygon
+  /// Uses proper polygon centroid algorithm instead of arithmetic mean
+  LatLng _calculatePolygonCentroid(List<LatLng> polygonCoordinates) {
+    if (polygonCoordinates.isEmpty) {
+      throw ArgumentError('Cannot calculate centroid of empty polygon');
+    }
+    
+    if (polygonCoordinates.length == 1) {
+      return polygonCoordinates.first;
+    }
+    
+    // For simple cases (3 or fewer points), use arithmetic mean as fallback
+    if (polygonCoordinates.length <= 3) {
+      final avgLat = polygonCoordinates.map((p) => p.latitude).reduce((a, b) => a + b) / polygonCoordinates.length;
+      final avgLng = polygonCoordinates.map((p) => p.longitude).reduce((a, b) => a + b) / polygonCoordinates.length;
+      return LatLng(avgLat, avgLng);
+    }
+    
+    // Calculate proper geometric centroid for complex polygons
+    double centroidX = 0;
+    double centroidY = 0;
+    double signedArea = 0;
+    
+    for (int i = 0; i < polygonCoordinates.length; i++) {
+      final x0 = polygonCoordinates[i].latitude;
+      final y0 = polygonCoordinates[i].longitude;
+      final x1 = polygonCoordinates[(i + 1) % polygonCoordinates.length].latitude;
+      final y1 = polygonCoordinates[(i + 1) % polygonCoordinates.length].longitude;
+      
+      final a = x0 * y1 - x1 * y0;
+      signedArea += a;
+      centroidX += (x0 + x1) * a;
+      centroidY += (y0 + y1) * a;
+    }
+    
+    signedArea *= 0.5;
+    
+    // Handle degenerate case where area is zero
+    if (signedArea.abs() < 1e-10) {
+      // Fallback to arithmetic mean
+      final avgLat = polygonCoordinates.map((p) => p.latitude).reduce((a, b) => a + b) / polygonCoordinates.length;
+      final avgLng = polygonCoordinates.map((p) => p.longitude).reduce((a, b) => a + b) / polygonCoordinates.length;
+      return LatLng(avgLat, avgLng);
+    }
+    
+    centroidX /= (6.0 * signedArea);
+    centroidY /= (6.0 * signedArea);
+    
+    return LatLng(centroidX, centroidY);
   }
 
   /// Cleanup resources

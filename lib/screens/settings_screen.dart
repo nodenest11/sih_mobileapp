@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../services/settings_manager.dart';
 import '../services/api_service.dart';
 import '../services/location_service.dart';
+import '../services/location_transmission_service.dart';
 import '../services/proximity_alert_service.dart';
 import '../services/geofencing_service.dart';
 import '../utils/logger.dart';
@@ -19,6 +20,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final SettingsManager _settings = SettingsManager();
   final ApiService _apiService = ApiService();
   final LocationService _locationService = LocationService();
+  final LocationTransmissionService _locationTransmissionService = LocationTransmissionService();
   final ProximityAlertService _proximityService = ProximityAlertService.instance;
   final GeofencingService _geofenceService = GeofencingService.instance;
   
@@ -29,6 +31,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _proximityAlerts = true;
   bool _geofenceAlerts = true;
   String _updateInterval = '10';
+  int _locationUpdateInterval = 15; // minutes
   int _proximityRadius = 5;
 
   @override
@@ -45,6 +48,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _proximityAlerts = _settings.proximityAlerts;
         _geofenceAlerts = _settings.geofenceAlerts;
         _updateInterval = _settings.updateInterval;
+        _locationUpdateInterval = _settings.locationUpdateInterval;
         _proximityRadius = _settings.proximityRadius;
       });
       AppLogger.info('✅ Settings loaded');
@@ -103,6 +107,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _proximityService.stopMonitoring();
       await _proximityService.startMonitoring();
       _showSnackBar('📏 Alert radius: ${value}km');
+    }
+  }
+
+  Future<void> _applyLocationUpdateInterval(int minutes) async {
+    await _settings.setLocationUpdateInterval(minutes);
+    await _locationTransmissionService.updateLocationInterval(minutes);
+    if (minutes > 0) {
+      _showSnackBar('📍 Location updates every $minutes minutes');
+    } else {
+      _showSnackBar('📍 Automatic location updates disabled');
+    }
+  }
+
+  Future<void> _sendManualLocationUpdate() async {
+    try {
+      setState(() => _isLoading = true);
+      await _locationTransmissionService.sendManualLocationUpdate();
+      _showSnackBar('📍 Location sent successfully');
+    } catch (e) {
+      _showSnackBar('❌ Failed to send location: $e');
+    } finally {
+      setState(() => _isLoading = false);
     }
   }
 
@@ -230,7 +256,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget _buildListTile({
     required String title,
     required String subtitle,
-    required VoidCallback onTap,
+    VoidCallback? onTap,
     IconData? icon,
     Widget? trailing,
     Color? iconColor,
@@ -354,6 +380,63 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                 ),
               );
+            },
+          ),
+          _buildListTile(
+            title: 'Location Update Interval',
+            subtitle: 'Automatic location sharing frequency',
+            icon: Icons.schedule_rounded,
+            trailing: Text(
+              _locationUpdateInterval == 0 ? 'Off' : '${_locationUpdateInterval}min',
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF1E40AF),
+              ),
+            ),
+            onTap: () {
+              showDialog(
+                context: context,
+                builder: (context) => AlertDialog(
+                  title: const Text('Location Update Interval'),
+                  content: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [0, 5, 10, 15, 30, 60].map((minutes) => 
+                      RadioListTile<int>(
+                        title: Text(minutes == 0 ? 'Disabled' : '$minutes minutes'),
+                        subtitle: Text(
+                          minutes == 0 ? 'Manual only' :
+                          minutes <= 10 ? 'Frequent updates' :
+                          minutes <= 30 ? 'Regular updates' : 'Battery saver'
+                        ),
+                        value: minutes,
+                        groupValue: _locationUpdateInterval,
+                        activeColor: const Color(0xFF1E40AF),
+                        onChanged: (value) async {
+                          Navigator.pop(context);
+                          setState(() => _locationUpdateInterval = value!);
+                          await _applyLocationUpdateInterval(value!);
+                        },
+                      ),
+                    ).toList(),
+                  ),
+                ),
+              );
+            },
+          ),
+          _buildListTile(
+            title: 'Send Location Now',
+            subtitle: 'Manually share current location',
+            icon: Icons.send_rounded,
+            trailing: _isLoading ? 
+              const SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ) : 
+              const Icon(Icons.arrow_forward_ios_rounded, size: 16),
+            onTap: _isLoading ? null : () {
+              _sendManualLocationUpdate();
             },
           ),
 

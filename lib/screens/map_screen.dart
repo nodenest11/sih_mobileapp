@@ -14,6 +14,7 @@ import '../services/geofencing_service.dart';
 import '../utils/logger.dart';
 import '../widgets/panic_alert_pulse_layer.dart';
 import '../widgets/heatmap_layer.dart';
+import '../widgets/alert_marker.dart';
 import '../theme/app_theme.dart';
 
 /// Professional, modern map screen with advanced UI/UX
@@ -30,7 +31,7 @@ class MapScreen extends StatefulWidget {
   State<MapScreen> createState() => _MapScreenState();
 }
 
-class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
+class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin, WidgetsBindingObserver {
   // Controllers
   final MapController _mapController = MapController();
   final ApiService _apiService = ApiService();
@@ -67,6 +68,9 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   int? _locationSafetyScore;
   String? _locationRiskLevel;
   List<GeospatialHeatPoint> _recentPanicAlerts = [];
+  List<Alert> _nearbyUnresolvedAlerts = [];
+  Alert? _selectedAlert;
+  Timer? _alertRefreshTimer;
   
   // UI state
 
@@ -80,6 +84,10 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
+    
+    // Add lifecycle observer for battery optimization
+    WidgetsBinding.instance.addObserver(this);
+    
     _pulseController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 2000),
@@ -94,15 +102,68 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    
+    switch (state) {
+      case AppLifecycleState.resumed:
+        // App is active - ensure real-time location updates are enabled
+        _locationService.enableRealtimeMode();
+        AppLogger.info('🗺️ App resumed - real-time location active');
+        
+        // Refresh alerts when app becomes active to get latest data
+        if (_currentLocation != null) {
+          _loadNearbyUnresolvedAlerts(forceRefresh: true);
+          AppLogger.info('🚨 App resumed - refreshing alerts for latest data');
+        }
+        break;
+      case AppLifecycleState.paused:
+      case AppLifecycleState.inactive:
+      case AppLifecycleState.detached:
+      case AppLifecycleState.hidden:
+        // Keep real-time mode active for seamless location tracking
+        AppLogger.info('�️ App backgrounded - maintaining real-time location for continuous tracking');
+        break;
+    }
+  }
+
+  @override
   void dispose() {
+    // Remove lifecycle observer
+    WidgetsBinding.instance.removeObserver(this);
+    
+    // Disable real-time mode when disposing
+    _locationService.disableRealtimeMode();
+    
+    // Animation controllers
     _pulseController.dispose();
     _slideController.dispose();
+    
+    // Text and focus controllers
     _searchController.dispose();
     _searchFocusNode.dispose();
+    
+    // Timers - cancel and clear references
     _searchDebounce?.cancel();
+    _searchDebounce = null;
     _panicMonitorTimer?.cancel();
+    _panicMonitorTimer = null;
+    _alertRefreshTimer?.cancel();
+    _alertRefreshTimer = null;
+    
+    // Stream subscriptions - cancel and clear references
     _proximitySubscription?.cancel();
+    _proximitySubscription = null;
     _geofenceSubscription?.cancel();
+    _geofenceSubscription = null;
+    
+    // Clear data collections to prevent memory leaks
+    _heatmapData.clear();
+    _restrictedZones.clear();
+    _searchResults.clear();
+    _recentPanicAlerts.clear();
+    
+    AppLogger.info('🧹 MapScreen resources disposed properly');
     super.dispose();
   }
 
@@ -110,16 +171,24 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     setState(() => _isLoading = true);
     
     try {
+      // First get location and load basic map data
       await Future.wait([
         _getCurrentLocation(),
         _loadHeatmapData(),
         _loadRestrictedZones(),
       ]);
       
+      // Then load location-dependent data after location is available
+      await _loadNearbyUnresolvedAlerts();
+      
       _listenToLocationUpdates();
       _listenToProximityAlerts();
       _listenToGeofenceEvents();
       _startPanicMonitoring();
+      _startAlertRefreshTimer();
+      
+      // Enable real-time location updates for map display
+      await _locationService.enableRealtimeMode();
       
       await _checkNearbyPanicAlerts();
     } catch (e) {
@@ -169,9 +238,11 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   }
 
   void _listenToLocationUpdates() {
+    // Listen to regular location stream for general updates
     _locationService.locationStream.listen((locationData) {
       if (!mounted) return;
       
+      final previousLocation = _currentLocation;
       setState(() {
         _currentLocation = locationData.latLng;
       });
@@ -179,6 +250,46 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       // Auto-follow user if tracking enabled and map is ready
       if (_isTrackingUser && _isMapReady) {
         _safeMapMove(_currentLocation!, _currentZoom);
+      }
+      
+      // Refresh nearby alerts when location changes significantly (>500m for real-time updates)
+      if (previousLocation == null || 
+          _calculateDistance(
+            previousLocation.latitude, 
+            previousLocation.longitude, 
+            _currentLocation!.latitude, 
+            _currentLocation!.longitude
+          ) > 0.5) {
+        _loadNearbyUnresolvedAlerts();
+        AppLogger.info('🚨 Location changed - refreshing nearby alerts for real-time updates');
+      }
+    });
+    
+    // Listen to real-time location stream for high-frequency map updates
+    _locationService.realtimeLocationStream.listen((locationData) {
+      if (!mounted) return;
+      
+      final previousLocation = _currentLocation;
+      setState(() {
+        _currentLocation = locationData.latLng;
+      });
+      
+      // Always update map immediately for real-time tracking
+      if (_isMapReady && _isTrackingUser) {
+        _safeMapMove(_currentLocation!, _currentZoom);
+        AppLogger.info('🗺️ Real-time location: ${locationData.latLng.toString()}');
+      }
+      
+      // Refresh alerts more frequently for real-time updates (every 200m)
+      if (previousLocation == null || 
+          _calculateDistance(
+            previousLocation.latitude, 
+            previousLocation.longitude, 
+            _currentLocation!.latitude, 
+            _currentLocation!.longitude
+          ) > 0.2) {
+        _loadNearbyUnresolvedAlerts();
+        AppLogger.info('🚨 Real-time location change - updating nearby alerts');
       }
     });
   }
@@ -335,6 +446,98 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     } catch (e) {
       AppLogger.error('Failed to load zones: $e');
     }
+  }
+
+  /// Load nearby unresolved alerts for persistent display
+  Future<void> _loadNearbyUnresolvedAlerts({bool forceRefresh = false}) async {
+    if (_currentLocation == null) {
+      AppLogger.warning('🚨 Cannot load alerts - current location is null');
+      return;
+    }
+    
+    AppLogger.info('🚨 Loading nearby alerts for location: ${_currentLocation!.latitude}, ${_currentLocation!.longitude} (force: $forceRefresh)');
+    
+    try {
+      final alerts = await _apiService.getNearbyUnresolvedAlerts(
+        latitude: _currentLocation!.latitude,
+        longitude: _currentLocation!.longitude,
+        radiusKm: 15.0, // Increased radius for better visibility
+      );
+      
+      if (mounted) {
+        setState(() {
+          _nearbyUnresolvedAlerts = alerts;
+        });
+        
+        AppLogger.info('🚨 Successfully loaded ${alerts.length} nearby unresolved alerts');
+        
+        // Debug: Print details of loaded alerts
+        for (int i = 0; i < alerts.length && i < 5; i++) {
+          final alert = alerts[i];
+          AppLogger.info('🚨 Alert ${i + 1}: ${alert.title} at ${alert.latitude}, ${alert.longitude} (${alert.type.name})');
+        }
+        
+        // Log if no alerts found
+        if (alerts.isEmpty) {
+          AppLogger.info('🚨 No unresolved alerts found in 15km radius');
+        }
+      }
+    } catch (e) {
+      AppLogger.error('Failed to load nearby alerts: $e');
+    }
+  }
+
+  /// Manually refresh alerts (for pull-to-refresh functionality)
+  Future<void> _refreshAlerts() async {
+    await _loadNearbyUnresolvedAlerts(forceRefresh: true);
+  }
+
+  /// Start timer to refresh unresolved alerts periodically (real-time updates)
+  void _startAlertRefreshTimer() {
+    _alertRefreshTimer?.cancel();
+    _alertRefreshTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
+      if (mounted && _currentLocation != null) {
+        _loadNearbyUnresolvedAlerts();
+      }
+    });
+  }
+
+  /// Handle alert marker tap
+  void _onAlertTap(Alert alert) {
+    setState(() {
+      _selectedAlert = alert;
+    });
+    
+    // Center map on alert location if coordinates are available
+    if (alert.latitude != null && alert.longitude != null) {
+      _safeMapMove(LatLng(alert.latitude!, alert.longitude!), 16.0);
+    }
+    
+    AppLogger.info('🚨 Alert selected: ${alert.title}');
+  }
+
+  /// Close alert popup
+  void _closeAlertPopup() {
+    setState(() {
+      _selectedAlert = null;
+    });
+  }
+
+  /// Build markers for unresolved alerts with debug logging
+  List<Marker> _buildUnresolvedAlertMarkers() {
+    final validAlerts = _nearbyUnresolvedAlerts
+        .where((alert) => alert.latitude != null && alert.longitude != null)
+        .toList();
+    
+    AppLogger.info('🗺️ Building ${validAlerts.length} alert markers from ${_nearbyUnresolvedAlerts.length} total alerts');
+    
+    return validAlerts.map((alert) {
+      AppLogger.info('🚨 Creating marker for alert: ${alert.title} at ${alert.latitude}, ${alert.longitude}');
+      return AlertMarkerBuilder.buildSingleAlertMarker(
+        alert,
+        onTap: () => _onAlertTap(alert),
+      );
+    }).toList();
   }
 
   double _getZoneIntensity(dynamic type) {
@@ -498,21 +701,59 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
         }
         
         // Check distance - only show alerts within 20km
-        // Safely extract latitude and longitude with null checks
-        final lat = alert['latitude'];
-        final lng = alert['longitude'];
+        // Safely extract latitude and longitude with null checks (support nested location object)
+        double? lat;
+        double? lng;
+        
+        // Try direct fields first
+        if (alert['latitude'] != null) {
+          lat = alert['latitude'] is num ? alert['latitude'].toDouble() : double.tryParse(alert['latitude'].toString());
+        } else if (alert['lat'] != null) {
+          lat = alert['lat'] is num ? alert['lat'].toDouble() : double.tryParse(alert['lat'].toString());
+        }
+        
+        if (alert['longitude'] != null) {
+          lng = alert['longitude'] is num ? alert['longitude'].toDouble() : double.tryParse(alert['longitude'].toString());
+        } else if (alert['lon'] != null) {
+          lng = alert['lon'] is num ? alert['lon'].toDouble() : double.tryParse(alert['lon'].toString());
+        } else if (alert['lng'] != null) {
+          lng = alert['lng'] is num ? alert['lng'].toDouble() : double.tryParse(alert['lng'].toString());
+        }
+        
+        // Try nested location object if direct fields not found
+        if ((lat == null || lng == null) && alert['location'] is Map<String, dynamic>) {
+          final location = alert['location'] as Map<String, dynamic>;
+          if (lat == null) {
+            if (location['lat'] != null) {
+              lat = location['lat'] is num ? location['lat'].toDouble() : double.tryParse(location['lat'].toString());
+            } else if (location['latitude'] != null) {
+              lat = location['latitude'] is num ? location['latitude'].toDouble() : double.tryParse(location['latitude'].toString());
+            }
+          }
+          if (lng == null) {
+            if (location['lon'] != null) {
+              lng = location['lon'] is num ? location['lon'].toDouble() : double.tryParse(location['lon'].toString());
+            } else if (location['lng'] != null) {
+              lng = location['lng'] is num ? location['lng'].toDouble() : double.tryParse(location['lng'].toString());
+            } else if (location['longitude'] != null) {
+              lng = location['longitude'] is num ? location['longitude'].toDouble() : double.tryParse(location['longitude'].toString());
+            }
+          }
+        }
         
         if (lat == null || lng == null) {
-          AppLogger.warning('Alert missing coordinates: $alert');
+          AppLogger.warning('Alert missing coordinates after all attempts: $alert');
           return false;
         }
+        
+        AppLogger.info('🗺️ Found coordinates: lat=$lat, lng=$lng for alert ${alert['alert_id']}');
         
         try {
           final distance = _calculateDistance(
             _currentLocation!.latitude,
             _currentLocation!.longitude,
-            lat is num ? lat.toDouble() : double.parse(lat.toString()),
-            lng is num ? lng.toDouble() : double.parse(lng.toString()),
+            lat,
+            lng,
           );
           return distance <= 20.0;
         } catch (e) {
@@ -521,11 +762,54 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
         }
       }).map((alert) {
         try {
-          final lat = alert['latitude'];
-          final lng = alert['longitude'];
+          // Extract coordinates using the same logic as above
+          double? lat;
+          double? lng;
+          
+          // Try direct fields first
+          if (alert['latitude'] != null) {
+            lat = alert['latitude'] is num ? alert['latitude'].toDouble() : double.tryParse(alert['latitude'].toString());
+          } else if (alert['lat'] != null) {
+            lat = alert['lat'] is num ? alert['lat'].toDouble() : double.tryParse(alert['lat'].toString());
+          }
+          
+          if (alert['longitude'] != null) {
+            lng = alert['longitude'] is num ? alert['longitude'].toDouble() : double.tryParse(alert['longitude'].toString());
+          } else if (alert['lon'] != null) {
+            lng = alert['lon'] is num ? alert['lon'].toDouble() : double.tryParse(alert['lon'].toString());
+          } else if (alert['lng'] != null) {
+            lng = alert['lng'] is num ? alert['lng'].toDouble() : double.tryParse(alert['lng'].toString());
+          }
+          
+          // Try nested location object if direct fields not found
+          if ((lat == null || lng == null) && alert['location'] is Map<String, dynamic>) {
+            final location = alert['location'] as Map<String, dynamic>;
+            if (lat == null) {
+              if (location['lat'] != null) {
+                lat = location['lat'] is num ? location['lat'].toDouble() : double.tryParse(location['lat'].toString());
+              } else if (location['latitude'] != null) {
+                lat = location['latitude'] is num ? location['latitude'].toDouble() : double.tryParse(location['latitude'].toString());
+              }
+            }
+            if (lng == null) {
+              if (location['lon'] != null) {
+                lng = location['lon'] is num ? location['lon'].toDouble() : double.tryParse(location['lon'].toString());
+              } else if (location['lng'] != null) {
+                lng = location['lng'] is num ? location['lng'].toDouble() : double.tryParse(location['lng'].toString());
+              } else if (location['longitude'] != null) {
+                lng = location['longitude'] is num ? location['longitude'].toDouble() : double.tryParse(location['longitude'].toString());
+              }
+            }
+          }
+          
+          if (lat == null || lng == null) {
+            AppLogger.warning('Cannot create GeospatialHeatPoint - missing coordinates: $alert');
+            return null;
+          }
+          
           return GeospatialHeatPoint.fromPanicAlert(
-            latitude: lat is num ? lat.toDouble() : double.parse(lat.toString()),
-            longitude: lng is num ? lng.toDouble() : double.parse(lng.toString()),
+            latitude: lat,
+            longitude: lng,
             timestamp: DateTime.parse(alert['timestamp'] ?? DateTime.now().toIso8601String()),
             intensity: 0.9,
             description: 'Emergency Alert',
@@ -886,20 +1170,22 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       backgroundColor: AppColors.background,
       body: Stack(
         children: [
-          // Map
-          GestureDetector(
-            behavior: HitTestBehavior.deferToChild,
-            onTap: () {
-              // Hide search results when tapping on map
-              if (_searchResults.isNotEmpty) {
-                setState(() {
-                  _searchResults.clear();
-                });
-              }
-              // Unfocus search field
-              _searchFocusNode.unfocus();
-            },
-            child: FlutterMap(
+          // Map with pull-to-refresh for real-time alerts
+          RefreshIndicator(
+            onRefresh: _refreshAlerts,
+            child: GestureDetector(
+              behavior: HitTestBehavior.deferToChild,
+              onTap: () {
+                // Hide search results when tapping on map
+                if (_searchResults.isNotEmpty) {
+                  setState(() {
+                    _searchResults.clear();
+                  });
+                }
+                // Unfocus search field
+                _searchFocusNode.unfocus();
+              },
+              child: FlutterMap(
               mapController: _mapController,
               options: MapOptions(
                 initialCenter: _currentLocation ?? const LatLng(28.6139, 77.2090),
@@ -977,47 +1263,18 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                     if (_currentLocation != null)
                       Marker(
                         point: _currentLocation!,
-                        width: 50,
-                        height: 50,
+                        width: 100,
+                        height: 100,
                         child: AnimatedBuilder(
                           animation: _pulseController,
                           builder: (context, child) {
-                            return Stack(
-                              alignment: Alignment.center,
-                              children: [
-                                // Pulse ring
-                                Container(
-                                  width: 50 * (1 + _pulseController.value * 0.5),
-                                  height: 50 * (1 + _pulseController.value * 0.5),
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    color: AppColors.primary.withValues(
-                                      alpha: 0.3 * (1 - _pulseController.value),
-                                    ),
-                                  ),
-                                ),
-                                // User dot
-                                Container(
-                                  width: 20,
-                                  height: 20,
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    color: AppColors.primary,
-                                    border: Border.all(color: Colors.white, width: 3),
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: Colors.black.withValues(alpha: 0.3),
-                                        blurRadius: 8,
-                                        offset: const Offset(0, 2),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            );
+                            return _buildUserLocationMarker();
                           },
                         ),
                       ),
+                    
+                    // Unresolved alert markers (persistent until resolved)
+                    ..._buildUnresolvedAlertMarkers(),
                     
                     // Panic alert markers
                     ..._recentPanicAlerts.map((alert) {
@@ -1111,6 +1368,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
               ],
             ),
           ),
+          ), // End of RefreshIndicator
           
           // Top UI
           _buildTopBar(),
@@ -1127,6 +1385,18 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
             top: MediaQuery.of(context).padding.top + 140,
             child: _buildMapControls(),
           ),
+          
+          // Alert detail popup
+          if (_selectedAlert != null)
+            Positioned(
+              bottom: 100,
+              left: 0,
+              right: 0,
+              child: AlertDetailPopup(
+                alert: _selectedAlert!,
+                onClose: _closeAlertPopup,
+              ),
+            ),
         ],
       ),
     );
@@ -1791,5 +2061,72 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     if (score >= 60) return 'Stay in well-lit areas and travel in groups when possible.';
     if (score >= 40) return 'Keep emergency contacts ready and stay alert.';
     return 'Use the panic button if you feel unsafe. Police are available 24/7.';
+  }
+
+  /// Build user location marker for real-time tracking
+  Widget _buildUserLocationMarker() {
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        // Animated pulse ring for real-time indication
+        Container(
+          width: 60 * (1 + _pulseController.value * 0.6),
+          height: 60 * (1 + _pulseController.value * 0.6),
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: AppColors.primary.withValues(
+              alpha: 0.4 * (1 - _pulseController.value),
+            ),
+          ),
+        ),
+        
+        // Secondary pulse for real-time effect
+        Container(
+          width: 40 * (1 + _pulseController.value * 0.3),
+          height: 40 * (1 + _pulseController.value * 0.3),
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: AppColors.primary.withValues(
+              alpha: 0.6 * (1 - _pulseController.value),
+            ),
+          ),
+        ),
+        
+        // User location dot
+        Container(
+          width: 24,
+          height: 24,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: AppColors.primary,
+            border: Border.all(color: Colors.white, width: 4),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.3),
+                blurRadius: 10,
+                offset: const Offset(0, 3),
+              ),
+            ],
+          ),
+        ),
+        
+        // Real-time indicator dot
+        Container(
+          width: 8,
+          height: 8,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: Colors.white,
+            boxShadow: [
+              BoxShadow(
+                color: AppColors.primary.withValues(alpha: 0.5),
+                blurRadius: 4,
+                offset: const Offset(0, 1),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
   }
 }

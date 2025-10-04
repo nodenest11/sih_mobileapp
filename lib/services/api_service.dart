@@ -103,19 +103,25 @@ class ApiService {
   }
   
   /// Circuit breaker pattern to handle service failures gracefully
-  bool _isCircuitBreakerOpen() {
+  /// Pure function - only checks state, no side effects
+  bool get _isCircuitBreakerOpen {
     if (_failureCount < _failureThreshold) return false;
     if (_lastFailureTime == null) return false;
     
     final timeSinceLastFailure = DateTime.now().difference(_lastFailureTime!);
-    if (timeSinceLastFailure > _circuitBreakerTimeout) {
-      _failureCount = 0;
-      _lastFailureTime = null;
-      AppLogger.api('🔄 Circuit breaker reset');
-      return false;
+    return timeSinceLastFailure <= _circuitBreakerTimeout;
+  }
+  
+  /// Reset circuit breaker if timeout has expired
+  void _resetCircuitBreakerIfExpired() {
+    if (_failureCount >= _failureThreshold && _lastFailureTime != null) {
+      final timeSinceLastFailure = DateTime.now().difference(_lastFailureTime!);
+      if (timeSinceLastFailure > _circuitBreakerTimeout) {
+        _failureCount = 0;
+        _lastFailureTime = null;
+        AppLogger.api('🔄 Circuit breaker reset after ${timeSinceLastFailure.inMinutes}m');
+      }
     }
-    
-    return true;
   }
   
   /// Record request failure for circuit breaker
@@ -123,6 +129,39 @@ class ApiService {
     _failureCount++;
     _lastFailureTime = DateTime.now();
     AppLogger.api('⚠️ Request failure recorded (${_failureCount}/${_failureThreshold})');
+    
+    if (_failureCount >= _failureThreshold) {
+      AppLogger.api('🚫 Circuit breaker opened - blocking requests');
+    }
+  }
+
+  /// Execute request with circuit breaker protection
+  Future<T> _executeWithCircuitBreaker<T>(
+    String endpoint,
+    Future<T> Function() request,
+  ) async {
+    // Reset circuit breaker if expired
+    _resetCircuitBreakerIfExpired();
+    
+    // Check if circuit breaker is open
+    if (_isCircuitBreakerOpen) {
+      AppLogger.api('🚫 Circuit breaker is open, request blocked: $endpoint');
+      throw HttpException('Service temporarily unavailable - circuit breaker is open');
+    }
+    
+    try {
+      final result = await request();
+      // Reset failure count on success
+      if (_failureCount > 0) {
+        _failureCount = 0;
+        _lastFailureTime = null;
+        AppLogger.api('✅ Request succeeded, circuit breaker reset');
+      }
+      return result;
+    } catch (e) {
+      _recordFailure();
+      rethrow;
+    }
   }
   
   /// Check if cached response is still valid
@@ -1521,6 +1560,135 @@ class ApiService {
       );
     }).toList();
   }
+
+  /// Get nearby unresolved alerts and panic alerts
+  /// This shows active incidents in the area that haven't been resolved
+  Future<List<Alert>> getNearbyUnresolvedAlerts({
+    required double latitude,
+    required double longitude,
+    double radiusKm = 5.0,
+  }) async {
+    try {
+      final requestHeaders = await safeHeaders;
+      
+      final queryParams = <String, String>{
+        'lat': latitude.toStringAsFixed(6),
+        'lon': longitude.toStringAsFixed(6),
+        'radius_km': radiusKm.toString(),
+        'status': 'unresolved', // Only show unresolved alerts
+        'include_panic': 'true', // Include panic/SOS alerts
+        'timestamp': DateTime.now().millisecondsSinceEpoch.toString(), // Force fresh data
+      };
+      
+      final uri = Uri.parse('$baseUrl$apiPrefix/alerts/nearby').replace(
+        queryParameters: queryParams,
+      );
+      
+      AppLogger.info('🚨 API Request: GET /alerts/nearby for ${latitude.toStringAsFixed(4)}, ${longitude.toStringAsFixed(4)} (${radiusKm}km)');
+      _logRequest('GET', '/alerts/nearby', headers: requestHeaders);
+      
+      final response = await _client.get(
+        uri,
+        headers: requestHeaders,
+      ).timeout(timeout);
+      
+      _logResponse('/alerts/nearby', response.statusCode);
+      AppLogger.info('🚨 API Response: ${response.statusCode} for nearby alerts');
+      
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> responseData = jsonDecode(response.body);
+        final List<dynamic> alertsData = responseData['alerts'] ?? [];
+        
+        AppLogger.info('🚨 Raw API returned ${alertsData.length} alerts');
+        
+        final alerts = alertsData.map((data) {
+          try {
+            final alert = Alert.fromJson(data);
+            AppLogger.info('🚨 Parsed alert: ${alert.title} at ${alert.latitude}, ${alert.longitude}');
+            return alert;
+          } catch (e) {
+            AppLogger.warning('Failed to parse alert: $e');
+            AppLogger.warning('Alert data: $data');
+            return null;
+          }
+        }).where((alert) => alert != null).cast<Alert>().toList();
+        
+        AppLogger.info('🚨 Successfully parsed ${alerts.length} nearby unresolved alerts');
+        return alerts;
+      } else if (response.statusCode == 404) {
+        AppLogger.info('ℹ️ No nearby alerts found (404)');
+        return []; // Return empty list when no alerts found
+      } else {
+        AppLogger.warning('🚨 API failed with status ${response.statusCode}');
+        return []; // Return empty list on API failure
+      }
+    } catch (e) {
+      AppLogger.error('Failed to fetch nearby alerts', error: e);
+      AppLogger.info('🚨 Returning empty list due to API error');
+      return []; // Return empty list instead of mock data
+    }
+  }
+
+  /// Get all active alerts for display on home screen
+  Future<List<Alert>> getActiveAlerts({
+    double? latitude,
+    double? longitude,
+    double radiusKm = 10.0,
+  }) async {
+    try {
+      final requestHeaders = await safeHeaders;
+      
+      final queryParams = <String, String>{
+        'status': 'active', // Active (unresolved) alerts
+        'limit': '50', // Limit to prevent overwhelming UI
+      };
+      
+      // Add location filtering if provided
+      if (latitude != null && longitude != null) {
+        queryParams['lat'] = latitude.toStringAsFixed(6);
+        queryParams['lon'] = longitude.toStringAsFixed(6);
+        queryParams['radius_km'] = radiusKm.toString();
+      }
+      
+      final uri = Uri.parse('$baseUrl$apiPrefix/alerts/active').replace(
+        queryParameters: queryParams,
+      );
+      
+      _logRequest('GET', '/alerts/active', headers: requestHeaders);
+      
+      final response = await _client.get(
+        uri,
+        headers: requestHeaders,
+      ).timeout(timeout);
+      
+      _logResponse('/alerts/active', response.statusCode);
+      
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> responseData = jsonDecode(response.body);
+        final List<dynamic> alertsData = responseData['alerts'] ?? [];
+        
+        final alerts = alertsData.map((data) {
+          try {
+            return Alert.fromJson(data);
+          } catch (e) {
+            AppLogger.warning('Failed to parse active alert: $e');
+            return null;
+          }
+        }).where((alert) => alert != null).cast<Alert>().toList();
+        
+        AppLogger.info('🏠 Found ${alerts.length} active alerts for home screen');
+        return alerts;
+      } else {
+        throw HttpException('Failed to get active alerts: ${response.statusCode}');
+      }
+    } catch (e) {
+      AppLogger.error('Failed to fetch active alerts', error: e);
+      // Return empty list instead of mock data
+      return [];
+    }
+  }
+
+  // Mock alert methods removed - now using only real backend data
 
   /// Calculate distance between two points in kilometers (Haversine formula)
   double _calculateDistance(double lat1, double lon1, double lat2, double lon2) {

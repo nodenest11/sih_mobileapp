@@ -7,6 +7,7 @@ import 'screens/login_screen.dart';
 import 'screens/onboarding_screen.dart';
 import 'services/api_service.dart';
 import 'services/settings_manager.dart';
+import 'services/location_transmission_service.dart';
 import 'utils/logger.dart';
 import 'theme/app_theme.dart';
 
@@ -47,6 +48,18 @@ Future<void> _initializeApp() async {
   // Initialize API service and find working server
   final apiService = ApiService();
   await apiService.initializeAuth();
+  
+  // Initialize Location Transmission Service and send app launch location
+  try {
+    final locationTransmissionService = LocationTransmissionService();
+    await locationTransmissionService.initialize();
+    
+    // Send immediate location update on app launch
+    await locationTransmissionService.sendAppLaunchLocation();
+    AppLogger.info('✅ Location Transmission Service initialized and app launch location sent');
+  } catch (e) {
+    AppLogger.warning('⚠️ Location Transmission Service initialization failed: $e');
+  }
   
   // Don't initialize background service on app start to avoid crashes
   // It will be initialized when user logs in and starts tracking

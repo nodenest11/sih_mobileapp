@@ -43,32 +43,158 @@ class Alert {
     return null;
   }
 
+  /// Parse latitude from various possible JSON formats
+  static double? _parseLatitude(Map<String, dynamic> json) {
+    double? lat;
+    
+    // Try direct fields first
+    if (json['latitude'] != null) {
+      lat = json['latitude']?.toDouble();
+      print('[COORD] Found direct latitude: $lat');
+      return lat;
+    }
+    if (json['lat'] != null) {
+      lat = json['lat']?.toDouble();
+      print('[COORD] Found direct lat: $lat');
+      return lat;
+    }
+    
+    // Try nested location object
+    final location = json['location'];
+    if (location is Map<String, dynamic>) {
+      if (location['lat'] != null) {
+        lat = location['lat']?.toDouble();
+        print('[COORD] Found nested location.lat: $lat');
+        return lat;
+      }
+      if (location['latitude'] != null) {
+        lat = location['latitude']?.toDouble();
+        print('[COORD] Found nested location.latitude: $lat');
+        return lat;
+      }
+    }
+    
+    print('[COORD] No latitude found in: ${json.keys.toList()}');
+    return null;
+  }
+
+  /// Parse longitude from various possible JSON formats
+  static double? _parseLongitude(Map<String, dynamic> json) {
+    double? lng;
+    
+    // Try direct fields first
+    if (json['longitude'] != null) {
+      lng = json['longitude']?.toDouble();
+      print('[COORD] Found direct longitude: $lng');
+      return lng;
+    }
+    if (json['lon'] != null) {
+      lng = json['lon']?.toDouble();
+      print('[COORD] Found direct lon: $lng');
+      return lng;
+    }
+    if (json['lng'] != null) {
+      lng = json['lng']?.toDouble();
+      print('[COORD] Found direct lng: $lng');
+      return lng;
+    }
+    
+    // Try nested location object
+    final location = json['location'];
+    if (location is Map<String, dynamic>) {
+      if (location['lon'] != null) {
+        lng = location['lon']?.toDouble();
+        print('[COORD] Found nested location.lon: $lng');
+        return lng;
+      }
+      if (location['lng'] != null) {
+        lng = location['lng']?.toDouble();
+        print('[COORD] Found nested location.lng: $lng');
+        return lng;
+      }
+      if (location['longitude'] != null) {
+        lng = location['longitude']?.toDouble();
+        print('[COORD] Found nested location.longitude: $lng');
+        return lng;
+      }
+    }
+    
+    print('[COORD] No longitude found in: ${json.keys.toList()}');
+    return null;
+  }
+
   factory Alert.fromJson(Map<String, dynamic> json) {
+    // Handle both API and mock data formats
+    final alertId = json['alert_id'] ?? json['id'] ?? 0;
+    final touristId = json['tourist_id'] ?? json['user_id'] ?? '';
+    final touristName = json['tourist_name'] ?? 'Unknown Tourist';
+    
+    // Parse timestamp from various formats
+    DateTime createdAt;
+    try {
+      if (json['timestamp'] != null) {
+        createdAt = DateTime.parse(json['timestamp']);
+      } else if (json['created_at'] != null) {
+        createdAt = DateTime.parse(json['created_at']);
+      } else {
+        createdAt = DateTime.now(); // Fallback to current time
+      }
+    } catch (e) {
+      print('[ALERT] Error parsing timestamp: ${json['timestamp']} - $e');
+      createdAt = DateTime.now(); // Fallback to current time
+    }
+    
+    // Parse alert type
+    AlertType alertType;
+    final typeStr = json['type']?.toString().toLowerCase() ?? 'general';
+    if (typeStr == 'sos' || typeStr == 'panic') {
+      alertType = AlertType.sos;
+    } else if (typeStr == 'emergency') {
+      alertType = AlertType.emergency;
+    } else if (typeStr == 'geofence') {
+      alertType = AlertType.geofence;
+    } else if (typeStr == 'anomaly') {
+      alertType = AlertType.anomaly;
+    } else if (typeStr == 'sequence') {
+      alertType = AlertType.sequence;
+    } else if (typeStr == 'safety') {
+      alertType = AlertType.safety;
+    } else {
+      alertType = AlertType.general;
+    }
+    
+    // Parse severity
+    AlertSeverity alertSeverity;
+    final severityStr = json['severity']?.toString().toLowerCase() ?? 'medium';
+    if (severityStr == 'critical') {
+      alertSeverity = AlertSeverity.critical;
+    } else if (severityStr == 'high') {
+      alertSeverity = AlertSeverity.high;
+    } else if (severityStr == 'low') {
+      alertSeverity = AlertSeverity.low;
+    } else {
+      alertSeverity = AlertSeverity.medium;
+    }
+    
     return Alert(
-      id: json['id'] ?? 0,
-      touristId: json['tourist_id'] ?? '',
-      touristName: json['tourist_name'] ?? '',
-      type: AlertType.values.firstWhere(
-        (e) => e.name == json['type'],
-        orElse: () => AlertType.general,
-      ),
-      severity: AlertSeverity.values.firstWhere(
-        (e) => e.name == json['severity'],
-        orElse: () => AlertSeverity.medium,
-      ),
-      title: json['title'] ?? '',
-      description: json['description'] ?? json['message'] ?? '',
-      latitude: json['latitude']?.toDouble() ?? json['lat']?.toDouble(),
-      longitude: json['longitude']?.toDouble() ?? json['lon']?.toDouble(),
-      createdAt: DateTime.parse(json['created_at'] ?? json['timestamp']),
+      id: alertId,
+      touristId: touristId,
+      touristName: touristName,
+      type: alertType,
+      severity: alertSeverity,
+      title: json['title'] ?? 'Alert',
+      description: json['description'] ?? json['message'] ?? 'No description available',
+      latitude: _parseLatitude(json),
+      longitude: _parseLongitude(json),
+      createdAt: createdAt,
       isAcknowledged: json['is_acknowledged'] ?? false,
       acknowledgedBy: json['acknowledged_by'],
       acknowledgedAt: json['acknowledged_at'] != null
-          ? DateTime.parse(json['acknowledged_at'])
+          ? DateTime.tryParse(json['acknowledged_at'])
           : null,
-      isResolved: json['is_resolved'] ?? false,
+      isResolved: json['resolved'] ?? json['is_resolved'] ?? false,
       resolvedAt: json['resolved_at'] != null
-          ? DateTime.parse(json['resolved_at'])
+          ? DateTime.tryParse(json['resolved_at'])
           : null,
     );
   }
