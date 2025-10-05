@@ -45,7 +45,7 @@ class _TripMonitorScreenState extends State<TripMonitorScreen> with TickerProvid
   }
 
   void _startAutoLocationUpdates() {
-    _locationTimer = Timer.periodic(const Duration(seconds: 20), (timer) {
+    _locationTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (_isMonitoring && mounted) {
         _getCurrentLocation(isAutoUpdate: true);
       }
@@ -161,7 +161,7 @@ class _TripMonitorScreenState extends State<TripMonitorScreen> with TickerProvid
         _updateCount = 0;
       }
     });
-    final status = _isMonitoring ? "started - Auto updates every 20s" : "stopped";
+  final status = _isMonitoring ? "started - Auto updates every 1s" : "stopped";
     _addLog("Monitoring $status");
     
     if (_isMonitoring) {
@@ -298,26 +298,8 @@ class _TripMonitorScreenState extends State<TripMonitorScreen> with TickerProvid
           
           const SizedBox(height: 16),
           
-          // Quick Action
-          SizedBox(
-            width: double.infinity,
-            child: OutlinedButton.icon(
-              onPressed: () => _getCurrentLocation(isAutoUpdate: false),
-              icon: _isUpdatingLocation 
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.refresh),
-              label: Text(_isUpdatingLocation ? 'Updating...' : 'Refresh Now'),
-              style: OutlinedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                side: const BorderSide(color: Color(0xFF0EA5E9)),
-                foregroundColor: const Color(0xFF0EA5E9),
-              ),
-            ),
-          ),
+          // Auto-refresh active when monitoring. Manual refresh removed.
+          const SizedBox.shrink(),
         ],
       ),
     );
