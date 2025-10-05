@@ -124,126 +124,119 @@ class _SOSCountdownScreenState extends State<SOSCountdownScreen>
     final progress = 1 - (_remaining.inMilliseconds / widget.countdownDuration.inMilliseconds);
     
     return Scaffold(
-      backgroundColor: Colors.red.shade50,
+      backgroundColor: const Color(0xFFFEF2F2),
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.close, color: Color(0xFF64748B)),
+          onPressed: _isSending ? null : _cancel,
+        ),
+        title: const Text(
+          'Emergency SOS',
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w600,
+            color: Color(0xFF0F172A),
+          ),
+        ),
+        centerTitle: true,
+      ),
       body: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+          padding: const EdgeInsets.all(24),
           child: Column(
             children: [
-              // Header with cancel button
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const SizedBox(width: 80), // Balance the cancel button
-                  const Text(
-                    'Emergency SOS',
-                    style: TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.red,
-                    ),
-                  ),
-                  TextButton(
-                    onPressed: _isSending ? null : _cancel,
-                    child: const Text(
-                      'CANCEL',
-                      style: TextStyle(
-                        color: Colors.grey,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              
               const Spacer(),
               
-              // Main countdown display
+              // Clean countdown circle
               AnimatedBuilder(
                 animation: _pulseAnimation,
                 builder: (context, child) {
                   return Transform.scale(
                     scale: _isSending ? 1.0 : _pulseAnimation.value,
                     child: Container(
-                      width: 280,
-                      height: 280,
+                      width: 220,
+                      height: 220,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        gradient: RadialGradient(
-                          colors: [
-                            Colors.red.shade600,
-                            Colors.red.shade800,
-                          ],
-                        ),
+                        color: const Color(0xFFEF4444),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.red.withOpacity(0.4),
+                            color: const Color(0xFFEF4444).withValues(alpha: 0.2),
                             blurRadius: 20,
-                            spreadRadius: 5,
+                            spreadRadius: 0,
                           ),
                         ],
                       ),
                       child: Stack(
                         alignment: Alignment.center,
                         children: [
-                          // Progress circle
+                          // Simple progress ring
                           SizedBox(
-                            width: 240,
-                            height: 240,
+                            width: 180,
+                            height: 180,
                             child: CircularProgressIndicator(
                               value: progress,
-                              strokeWidth: 8,
-                              backgroundColor: Colors.white.withOpacity(0.3),
+                              strokeWidth: 4,
+                              backgroundColor: Colors.white.withValues(alpha: 0.3),
                               valueColor: const AlwaysStoppedAnimation(Colors.white),
                             ),
                           ),
                           
                           // Center content
-                          Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              if (_isSending) ...[
-                                const CircularProgressIndicator(
-                                  color: Colors.white,
-                                  strokeWidth: 3,
-                                ),
-                                const SizedBox(height: 16),
-                                const Text(
-                                  'SENDING...',
-                                  style: TextStyle(
+                          if (_isSending) ...[
+                            const Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                SizedBox(
+                                  width: 24,
+                                  height: 24,
+                                  child: CircularProgressIndicator(
                                     color: Colors.white,
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.bold,
-                                    letterSpacing: 1.2,
+                                    strokeWidth: 3,
                                   ),
                                 ),
-                              ] else ...[
-                                Icon(
-                                  Icons.emergency,
-                                  size: 60,
-                                  color: Colors.white,
-                                ),
-                                const SizedBox(height: 16),
+                                SizedBox(height: 12),
                                 Text(
-                                  '${_remaining.inSeconds}',
-                                  style: const TextStyle(
-                                    fontSize: 72,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.white,
-                                  ),
-                                ),
-                                const Text(
-                                  'SECONDS',
+                                  'Sending...',
                                   style: TextStyle(
                                     color: Colors.white,
                                     fontSize: 16,
                                     fontWeight: FontWeight.w600,
-                                    letterSpacing: 2,
                                   ),
                                 ),
                               ],
-                            ],
-                          ),
+                            ),
+                          ] else ...[
+                            Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                const Icon(
+                                  Icons.emergency_outlined,
+                                  size: 32,
+                                  color: Colors.white,
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  '${_remaining.inSeconds}',
+                                  style: const TextStyle(
+                                    fontSize: 48,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                                const Text(
+                                  'seconds',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
                         ],
                       ),
                     ),
@@ -251,41 +244,36 @@ class _SOSCountdownScreenState extends State<SOSCountdownScreen>
                 },
               ),
               
-              const Spacer(),
+              const SizedBox(height: 40),
               
-              // Description
+              // Simple info card
               Container(
+                width: double.infinity,
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
                   color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: Colors.red.shade200),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
                 ),
                 child: Column(
                   children: [
-                    Row(
-                      children: [
-                        Icon(Icons.info_outline, color: Colors.red.shade600),
-                        const SizedBox(width: 12),
-                        const Expanded(
-                          child: Text(
-                            'Emergency Alert',
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      ],
+                    const Text(
+                      'Emergency Alert',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF0F172A),
+                      ),
                     ),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 8),
                     Text(
                       _isSending
-                          ? 'Sending your location and emergency alert to police and emergency contacts...'
-                          : 'Emergency services will be notified with your current location. Cancel if this was accidental.',
-                      style: TextStyle(
+                          ? 'Sending location to emergency services...'
+                          : 'Your location will be sent to emergency services and saved contacts.',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
                         fontSize: 14,
-                        color: Colors.grey.shade700,
+                        color: Color(0xFF64748B),
                         height: 1.4,
                       ),
                     ),
@@ -293,40 +281,21 @@ class _SOSCountdownScreenState extends State<SOSCountdownScreen>
                 ),
               ),
               
-              const SizedBox(height: 24),
+              const Spacer(),
               
-              // Action buttons
+              // Clean action buttons
               if (!_isSending) ...[
-                Row(
+                Column(
                   children: [
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: _cancel,
-                        style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          side: BorderSide(color: Colors.grey.shade400),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                        child: const Text(
-                          'CANCEL',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w600,
-                            color: Colors.grey,
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(
+                    SizedBox(
+                      width: double.infinity,
                       child: ElevatedButton(
                         onPressed: () {
                           _timer?.cancel();
                           _sendSOS();
                         },
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.red.shade600,
+                          backgroundColor: const Color(0xFFEF4444),
                           foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(vertical: 16),
                           shape: RoundedRectangleBorder(
@@ -334,9 +303,32 @@ class _SOSCountdownScreenState extends State<SOSCountdownScreen>
                           ),
                         ),
                         child: const Text(
-                          'SEND NOW',
+                          'Send Alert Now',
                           style: TextStyle(
+                            fontSize: 16,
                             fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton(
+                        onPressed: _cancel,
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          side: const BorderSide(color: Color(0xFFE2E8F0)),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        child: const Text(
+                          'Cancel',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w500,
+                            color: Color(0xFF64748B),
                           ),
                         ),
                       ),

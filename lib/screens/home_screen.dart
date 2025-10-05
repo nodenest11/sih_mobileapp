@@ -21,6 +21,7 @@ import 'sos_countdown_screen.dart';
 import 'safety_tips_screen.dart';
 import 'danger_zones_screen.dart';
 import 'tourist_services_screen.dart';
+import 'trip_monitor_screen_professional.dart';
 
 class HomeScreen extends StatefulWidget {
   final Tourist tourist;
@@ -1110,85 +1111,133 @@ class _HomeScreenState extends State<HomeScreen>
 
   Widget _buildQuickActions() {
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(16),
+      margin: const EdgeInsets.symmetric(horizontal: 16),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: const Color(0xFFE2E8F0)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.03),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
+            color: Colors.black.withValues(alpha: 0.02),
+            blurRadius: 4,
+            offset: const Offset(0, 1),
           ),
         ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Quick Actions',
-            style: TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.w600,
-              color: Color(0xFF0F172A),
-              letterSpacing: 0.2,
-            ),
+          Row(
+            children: [
+              const Icon(
+                Icons.dashboard_outlined,
+                size: 20,
+                color: Color(0xFF0EA5E9),
+              ),
+              const SizedBox(width: 8),
+              const Text(
+                'Quick Actions',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF0F172A),
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 16),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
+          
+          // Grid layout with proper titles
+          Column(
             children: [
-              _buildSimpleActionButton(
-                icon: Icons.shield_rounded,
-                label: 'Safety Tips',
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildActionCard(
+                      icon: Icons.shield_outlined,
+                      title: 'Safety Tips',
+                      subtitle: 'Travel guidelines',
+                      color: const Color(0xFF22C55E),
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => SafetyTipsScreen(tourist: widget.tourist),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _buildActionCard(
+                      icon: Icons.description_outlined,
+                      title: 'E-FIR',
+                      subtitle: 'File complaint',
+                      color: const Color(0xFF3B82F6),
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (context) => EFIRFormScreen(tourist: widget.tourist)),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildActionCard(
+                      icon: Icons.local_hospital_outlined,
+                      title: 'Services',
+                      subtitle: 'Emergency help',
+                      color: const Color(0xFFEF4444),
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (context) => TouristServicesScreen(tourist: widget.tourist)),
+                        );
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _buildActionCard(
+                      icon: Icons.warning_outlined,
+                      title: 'Danger Zones',
+                      subtitle: 'Risk areas',
+                      color: const Color(0xFFF59E0B),
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => DangerZonesScreen(tourist: widget.tourist),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              // Trip Monitor - Full width as it's the main feature
+              _buildActionCard(
+                icon: Icons.monitor_heart_outlined,
+                title: 'Trip Monitor',
+                subtitle: 'Auto location tracking every 20s',
+                color: const Color(0xFF8B5CF6),
                 onTap: () {
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (context) => SafetyTipsScreen(tourist: widget.tourist),
+                      builder: (context) => const TripMonitorScreen(),
                     ),
                   );
                 },
-              ),
-              _buildSimpleActionButton(
-                icon: Icons.description_rounded,
-                label: 'E-FIR',
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (context) => EFIRFormScreen(tourist: widget.tourist)),
-                  );
-                },
-              ),
-              _buildSimpleActionButton(
-                icon: Icons.local_hospital_rounded,
-                label: 'Services',
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (context) => TouristServicesScreen(tourist: widget.tourist)),
-                  );
-                },
-              ),
-              _buildSimpleActionButton(
-                icon: Icons.warning_amber_rounded,
-                label: 'Zones',
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => DangerZonesScreen(tourist: widget.tourist),
-                    ),
-                  );
-                },
-              ),
-              _buildSimpleActionButton(
-                icon: Icons.share_location_rounded,
-                label: 'Share',
-                onTap: () {
-                  _shareLocation();
-                },
+                isFullWidth: true,
               ),
             ],
           ),
@@ -1197,46 +1246,96 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  Widget _buildSimpleActionButton({
+  Widget _buildActionCard({
     required IconData icon,
-    required String label,
+    required String title,
+    required String subtitle,
+    required Color color,
     required VoidCallback onTap,
+    bool isFullWidth = false,
   }) {
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(8),
       child: Container(
-        width: 60,
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 48,
-              height: 48,
-              decoration: BoxDecoration(
-                color: const Color(0xFFF8FAFC),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: const Color(0xFFE2E8F0)),
-              ),
-              child: Icon(
-                icon,
-                size: 24,
-                color: const Color(0xFF1E40AF),
-              ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              label,
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w500,
-                color: Color(0xFF64748B),
-              ),
-            ),
-          ],
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.05),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: color.withValues(alpha: 0.1)),
         ),
+        child: isFullWidth 
+            ? Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: color.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Icon(icon, size: 20, color: color),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFF0F172A),
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          subtitle,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Color(0xFF64748B),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Icon(
+                    Icons.arrow_forward_ios,
+                    size: 14,
+                    color: color,
+                  ),
+                ],
+              )
+            : Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      color: color.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Icon(icon, size: 18, color: color),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF0F172A),
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: Color(0xFF64748B),
+                    ),
+                  ),
+                ],
+              ),
       ),
     );
   }
@@ -1866,83 +1965,7 @@ class _HomeScreenState extends State<HomeScreen>
 
 
 
-  void _shareLocation() async {
-    if (_currentLocationInfo != null) {
-      final lat = _currentLocationInfo!['latitude'];
-      final lon = _currentLocationInfo!['longitude'];
-      final address = _currentLocationInfo!['address'] ?? 'Unknown location';
-      
-      final message = '📍 My current location:\n'
-          '$address\n'
-          'Coordinates: $lat, $lon\n'
-          'Google Maps: https://maps.google.com/?q=$lat,$lon\n\n'
-          'Shared via Smart Tourist Safety App';
-      
-      // Show share dialog
-      showDialog(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Row(
-            children: [
-              Icon(Icons.share_location_rounded, color: Color(0xFF1E40AF)),
-              SizedBox(width: 8),
-              Text('Share Location'),
-            ],
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                address,
-                style: const TextStyle(fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 8),
-              Text('Lat: $lat, Lon: $lon'),
-              const SizedBox(height: 16),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFEFF6FF),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  message,
-                  style: const TextStyle(fontSize: 12),
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Clipboard.setData(ClipboardData(text: message));
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Location copied to clipboard!'),
-                    duration: Duration(seconds: 2),
-                  ),
-                );
-              },
-              child: const Text('Copy'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Close'),
-            ),
-          ],
-        ),
-      );
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Location not available. Please wait...'),
-          duration: Duration(seconds: 2),
-        ),
-      );
-    }
-  }
+
 
 
 
