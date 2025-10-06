@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:latlong2/latlong.dart';
 import 'dart:async';
+import 'dart:math' as math;
 import '../models/tourist.dart';
 import '../models/location.dart';
 import '../models/alert.dart';
@@ -13,7 +15,7 @@ import '../utils/logger.dart';
 import 'notification_screen.dart';
 import 'map_screen.dart';
 import '../widgets/safety_score_widget.dart';
-import '../widgets/geofence_alert.dart';
+
 import '../widgets/proximity_alert_widget.dart';
 
 import 'efir_form_screen.dart';
@@ -256,7 +258,7 @@ class _HomeScreenState extends State<HomeScreen>
       // Start geofencing monitoring
       await _geofencingService.startMonitoring();
       
-      // Listen to geofence events and show alerts
+      // Listen to geofence events (notifications handled by GeofencingService)
       _geofencingService.events.listen((event) {
         if (mounted) {
           _showGeofenceAlert(event.zone, event.eventType);
@@ -445,14 +447,8 @@ class _HomeScreenState extends State<HomeScreen>
 
   
   void _showGeofenceAlert(RestrictedZone zone, GeofenceEventType eventType) {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => GeofenceAlertDialog(
-        zone: zone,
-        eventType: eventType,
-      ),
-    );
+    // Only show notification, no dialog
+    AppLogger.info('Geofence alert: ${eventType == GeofenceEventType.enter ? "Entered" : "Exited"} ${zone.name}');
   }
 
   void _showProximityAlertDialog(ProximityAlertEvent event) {
@@ -760,6 +756,11 @@ class _HomeScreenState extends State<HomeScreen>
       }
       
       AppLogger.info('🏠 Loaded ${activeAlerts.length} active alerts for home screen');
+
+      // ENHANCED: Also check for restricted zones when loading alerts
+      if (position != null) {
+        await _checkNearbyRestrictedZonesFromHome(LatLng(position.latitude, position.longitude));
+      }
     } catch (e) {
       AppLogger.error('Failed to load alerts: $e');
       if (mounted) {
@@ -769,6 +770,113 @@ class _HomeScreenState extends State<HomeScreen>
         });
       }
     }
+  }
+
+  /// Check for nearby restricted zones from home screen and trigger alerts if user is close to them
+  Future<void> _checkNearbyRestrictedZonesFromHome(LatLng currentLocation) async {
+    try {
+      AppLogger.info('🏠 Checking nearby restricted zones from home screen...');
+      
+      // Get restricted zones from geofencing service
+      final restrictedZones = _geofencingService.restrictedZones;
+      
+      if (restrictedZones.isEmpty) {
+        AppLogger.info('🛡️ No restricted zones loaded for checking from home');
+        return;
+      }
+      
+      AppLogger.info('🛡️ Checking ${restrictedZones.length} restricted zones for proximity from home');
+      
+      for (final zone in restrictedZones) {
+        // Check if user is inside the restricted zone
+        final isInside = _geofencingService.isPointInPolygon(currentLocation, zone.polygonCoordinates);
+        
+        if (isInside) {
+          AppLogger.warning('🚨 ALERT: User is INSIDE restricted zone: ${zone.name}');
+          await _triggerRestrictedZoneAlertFromHome(zone, 0.0, isInside: true);
+          continue;
+        }
+        
+        // Calculate distance to zone center for proximity alerts
+        final zoneCenter = zone.center ?? _calculatePolygonCentroidHome(zone.polygonCoordinates);
+        final distanceToZone = _calculateDistanceHome(
+          currentLocation.latitude,
+          currentLocation.longitude,
+          zoneCenter.latitude,
+          zoneCenter.longitude,
+        );
+        
+        // Check if user is within critical proximity (100m)
+        if (distanceToZone <= 0.1) {
+          AppLogger.warning('⚠️ CRITICAL: User within ${(distanceToZone * 1000).toInt()}m of restricted zone: ${zone.name}');
+          await _triggerRestrictedZoneAlertFromHome(zone, distanceToZone, isInside: false, isCritical: true);
+        }
+        // Check if user is within nearby proximity (500m)
+        else if (distanceToZone <= 0.5) {
+          AppLogger.info('⚠️ WARNING: User within ${(distanceToZone * 1000).toInt()}m of restricted zone: ${zone.name}');
+          await _triggerRestrictedZoneAlertFromHome(zone, distanceToZone, isInside: false, isCritical: false);
+        }
+      }
+      
+    } catch (e) {
+      AppLogger.error('Failed to check restricted zones from home: $e');
+    }
+  }
+
+  /// Trigger restricted zone alert notification from home screen
+  Future<void> _triggerRestrictedZoneAlertFromHome(RestrictedZone zone, double distanceKm, {required bool isInside, bool isCritical = false}) async {
+    try {
+      String alertTitle;
+      String alertBody;
+      
+      if (isInside) {
+        alertTitle = '🚨 DANGER - Inside Restricted Zone';
+        alertBody = 'You are currently inside "${zone.name}". Please leave immediately for your safety!';
+      } else if (isCritical) {
+        alertTitle = '⚠️ CRITICAL - Restricted Zone Nearby';
+        alertBody = 'DANGER: You are ${(distanceKm * 1000).toInt()}m from "${zone.name}". Do not proceed further!';
+      } else {
+        alertTitle = '⚠️ WARNING - Restricted Zone Nearby';
+        alertBody = 'WARNING: You are ${(distanceKm * 1000).toInt()}m from "${zone.name}". Exercise caution.';
+      }
+      
+      AppLogger.warning('🏠 Triggering restricted zone alert from home: $alertTitle - $alertBody');
+      
+      // Show notification using geofencing service
+      await _geofencingService.showEmergencyZoneAlert(zone, distanceKm * 1000, isInside: isInside);
+      
+    } catch (e) {
+      AppLogger.error('Failed to trigger restricted zone alert from home: $e');
+    }
+  }
+
+  /// Calculate distance between two points in kilometers
+  double _calculateDistanceHome(double lat1, double lon1, double lat2, double lon2) {
+    const double earthRadius = 6371; // Earth's radius in kilometers
+    final double lat1Rad = lat1 * (math.pi / 180);
+    final double lat2Rad = lat2 * (math.pi / 180);
+    final double deltaLatRad = (lat2 - lat1) * (math.pi / 180);
+    final double deltaLonRad = (lon2 - lon1) * (math.pi / 180);
+
+    final double a = math.sin(deltaLatRad / 2) * math.sin(deltaLatRad / 2) +
+        math.cos(lat1Rad) * math.cos(lat2Rad) *
+        math.sin(deltaLonRad / 2) * math.sin(deltaLonRad / 2);
+    final double c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
+
+    return earthRadius * c;
+  }
+
+  /// Calculate polygon centroid for zones without center coordinates
+  LatLng _calculatePolygonCentroidHome(List<LatLng> coordinates) {
+    if (coordinates.isEmpty) return const LatLng(0, 0);
+    
+    double lat = 0.0, lng = 0.0;
+    for (final point in coordinates) {
+      lat += point.latitude;
+      lng += point.longitude;
+    }
+    
+    return LatLng(lat / coordinates.length, lng / coordinates.length);
   }
 
   Future<void> _handleSOSPress() async {

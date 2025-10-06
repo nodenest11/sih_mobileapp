@@ -482,9 +482,108 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin, Wi
           AppLogger.info('🚨 No unresolved alerts found in 15km radius');
         }
       }
+
+      // ENHANCED: Also check for restricted zones when searching for nearby alerts
+      await _checkNearbyRestrictedZones();
+      
     } catch (e) {
       AppLogger.error('Failed to load nearby alerts: $e');
     }
+  }
+
+  /// Check for nearby restricted zones and trigger alerts if user is close to or inside them
+  Future<void> _checkNearbyRestrictedZones() async {
+    if (_currentLocation == null) return;
+    
+    try {
+      AppLogger.info('🛡️ Checking nearby restricted zones...');
+      
+      // Get restricted zones from geofencing service
+      final restrictedZones = _geofencingService.restrictedZones;
+      
+      if (restrictedZones.isEmpty) {
+        AppLogger.info('🛡️ No restricted zones loaded for checking');
+        return;
+      }
+      
+      AppLogger.info('🛡️ Checking ${restrictedZones.length} restricted zones for proximity');
+      
+      for (final zone in restrictedZones) {
+        // Check if user is inside the restricted zone
+        final isInside = _geofencingService.isPointInPolygon(_currentLocation!, zone.polygonCoordinates);
+        
+        if (isInside) {
+          AppLogger.warning('🚨 ALERT: User is INSIDE restricted zone: ${zone.name}');
+          await _triggerRestrictedZoneAlert(zone, 0.0, isInside: true);
+          continue;
+        }
+        
+        // Calculate distance to zone center for proximity alerts
+        final zoneCenter = zone.center ?? _calculatePolygonCentroid(zone.polygonCoordinates);
+        final distanceToZone = _calculateDistance(
+          _currentLocation!.latitude,
+          _currentLocation!.longitude,
+          zoneCenter.latitude,
+          zoneCenter.longitude,
+        );
+        
+        // Check if user is within critical proximity (100m)
+        if (distanceToZone <= 0.1) {
+          AppLogger.warning('⚠️ CRITICAL: User within ${(distanceToZone * 1000).toInt()}m of restricted zone: ${zone.name}');
+          await _triggerRestrictedZoneAlert(zone, distanceToZone, isInside: false, isCritical: true);
+        }
+        // Check if user is within nearby proximity (500m)
+        else if (distanceToZone <= 0.5) {
+          AppLogger.info('⚠️ WARNING: User within ${(distanceToZone * 1000).toInt()}m of restricted zone: ${zone.name}');
+          await _triggerRestrictedZoneAlert(zone, distanceToZone, isInside: false, isCritical: false);
+        }
+      }
+      
+    } catch (e) {
+      AppLogger.error('Failed to check restricted zones: $e');
+    }
+  }
+
+  /// Trigger restricted zone alert notification
+  Future<void> _triggerRestrictedZoneAlert(RestrictedZone zone, double distanceKm, {required bool isInside, bool isCritical = false}) async {
+    try {
+      String alertTitle;
+      String alertBody;
+      
+      if (isInside) {
+        alertTitle = '🚨 DANGER - Inside Restricted Zone';
+        alertBody = 'You are currently inside "${zone.name}". Please leave immediately for your safety!';
+      } else if (isCritical) {
+        alertTitle = '⚠️ CRITICAL - Restricted Zone Nearby';
+        alertBody = 'DANGER: You are ${(distanceKm * 1000).toInt()}m from "${zone.name}". Do not proceed further!';
+      } else {
+        alertTitle = '⚠️ WARNING - Restricted Zone Nearby';
+        alertBody = 'WARNING: You are ${(distanceKm * 1000).toInt()}m from "${zone.name}". Exercise caution.';
+      }
+      
+      AppLogger.warning('🚨 Triggering restricted zone alert: $alertTitle - $alertBody');
+      
+      // Show phone notification using geofencing service
+      await _geofencingService.showEmergencyZoneAlert(zone, distanceKm * 1000, isInside: isInside);
+      
+    } catch (e) {
+      AppLogger.error('Failed to trigger restricted zone alert: $e');
+    }
+  }
+
+
+
+  /// Calculate polygon centroid for zones without center coordinates
+  LatLng _calculatePolygonCentroid(List<LatLng> coordinates) {
+    if (coordinates.isEmpty) return const LatLng(0, 0);
+    
+    double lat = 0.0, lng = 0.0;
+    for (final point in coordinates) {
+      lat += point.latitude;
+      lng += point.longitude;
+    }
+    
+    return LatLng(lat / coordinates.length, lng / coordinates.length);
   }
 
   /// Manually refresh alerts (for pull-to-refresh functionality)
@@ -672,7 +771,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin, Wi
       if (!mounted) return;
       
       if (event.eventType == GeofenceEventType.enter) {
-        _showGeofenceAlert(event.zone);
+        // Only log entry - notification is handled by GeofencingService
+        AppLogger.info('Geofence alert: Entered ${event.zone.name} - notification sent');
       }
     });
   }
@@ -853,39 +953,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin, Wi
     _showSnackBar('⚠️ $title - ${distance.toStringAsFixed(1)}km away');
   }
 
-  void _showGeofenceAlert(RestrictedZone zone) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Row(
-          children: [
-            Icon(Icons.warning_rounded, color: AppColors.warning, size: 28),
-            const SizedBox(width: 12),
-            const Expanded(child: Text('Restricted Zone')),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              zone.name,
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            Text(zone.description),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Understood'),
-          ),
-        ],
-      ),
-    );
-  }
+
 
   void _showHeatmapSettings() {
     showModalBottomSheet(

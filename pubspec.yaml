@@ -1,5 +1,5 @@
 name: safety_tourist_app
-description: "Tourist Safety App - Live tracking, maps, panic button , geofencing"
+description: "SafeHorizon - Tourist Safety App - Live tracking, maps, panic button , geofencing"
 publish_to: 'none'
 
 version: 1.0.0+1

@@ -3,6 +3,9 @@ import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
 import 'dart:async';
 import 'dart:convert';
+import '../services/geofencing_service.dart';
+import '../models/alert.dart';
+import '../utils/logger.dart';
 
 class TripMonitorScreen extends StatefulWidget {
   const TripMonitorScreen({super.key});
@@ -14,6 +17,8 @@ class TripMonitorScreen extends StatefulWidget {
 class _TripMonitorScreenState extends State<TripMonitorScreen> with TickerProviderStateMixin {
   late TabController _tabController;
   Timer? _locationTimer;
+  StreamSubscription<GeofenceEvent>? _geofenceSubscription;
+  final GeofencingService _geofencingService = GeofencingService.instance;
   
   // Basic state
   double _currentLat = 0.0;
@@ -39,6 +44,7 @@ class _TripMonitorScreenState extends State<TripMonitorScreen> with TickerProvid
   @override
   void dispose() {
     _locationTimer?.cancel();
+    _geofenceSubscription?.cancel();
     _tabController.dispose();
     _destinationController.dispose();
     super.dispose();
@@ -159,9 +165,12 @@ class _TripMonitorScreenState extends State<TripMonitorScreen> with TickerProvid
       _isMonitoring = !_isMonitoring;
       if (_isMonitoring) {
         _updateCount = 0;
+        _startGeofenceMonitoring();
+      } else {
+        _stopGeofenceMonitoring();
       }
     });
-  final status = _isMonitoring ? "started - Auto updates every 1s" : "stopped";
+    final status = _isMonitoring ? "started - Auto updates every 1s + Restricted zone alerts" : "stopped";
     _addLog("Monitoring $status");
     
     if (_isMonitoring) {
@@ -169,7 +178,50 @@ class _TripMonitorScreenState extends State<TripMonitorScreen> with TickerProvid
     }
   }
 
+  /// Start geofence monitoring for restricted zones
+  Future<void> _startGeofenceMonitoring() async {
+    try {
+      await _geofencingService.initialize();
+      await _geofencingService.startMonitoring();
+      
+      // Listen to geofence events
+      _geofenceSubscription = _geofencingService.events.listen((event) {
+        if (mounted) {
+          _handleGeofenceEvent(event);
+        }
+      });
+      
+      _addLog("🛡️ Restricted zone monitoring activated");
+    } catch (e) {
+      _addLog("⚠️ Geofencing setup failed: ${e.toString().split('.').last}");
+    }
+  }
 
+  /// Stop geofence monitoring
+  void _stopGeofenceMonitoring() {
+    _geofenceSubscription?.cancel();
+    _geofencingService.stopMonitoring();
+    _addLog("🛡️ Restricted zone monitoring deactivated");
+  }
+
+  /// Handle geofence events (entry/exit)
+  void _handleGeofenceEvent(GeofenceEvent event) {
+    final eventType = event.eventType == GeofenceEventType.enter ? "ENTERED" : "EXITED";
+    final alertLevel = event.zone.type == ZoneType.dangerous ? "🚨 DANGER" : "⚠️ RESTRICTED";
+    
+    _addLog("$alertLevel: $eventType ${event.zone.name}");
+    
+    // Log zone entry (notification is handled by GeofencingService)
+    if (event.eventType == GeofenceEventType.enter) {
+      _showRestrictedZoneDialog(event.zone);
+    }
+  }
+
+  /// Log restricted zone entry (no dialog shown)
+  void _showRestrictedZoneDialog(RestrictedZone zone) {
+    // Only log entry, no dialog - notification is handled by GeofencingService
+    AppLogger.warning('Restricted zone entered: ${zone.name} - notification sent via GeofencingService');
+  }
 
   void _addLog(String message) {
     final time = TimeOfDay.now();
@@ -514,7 +566,7 @@ class _TripMonitorScreenState extends State<TripMonitorScreen> with TickerProvid
           const SizedBox(height: 12),
           Text(
             _isMonitoring 
-                ? (_isUpdatingLocation ? 'Updating location...' : 'Active - Updates every 20s')
+                ? (_isUpdatingLocation ? 'Updating location...' : 'Active - Updates every 1s + Zone alerts')
                 : 'Monitoring Inactive',
             style: TextStyle(
               fontSize: 14,

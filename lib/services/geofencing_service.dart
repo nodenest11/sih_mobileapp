@@ -1,6 +1,5 @@
 import 'dart:async';
-import 'dart:typed_data';
-import 'package:flutter/material.dart';
+
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
@@ -63,24 +62,93 @@ class GeofencingService {
     return _eventController!.stream;
   }
 
+  /// Public method to check if a point is inside a polygon
+  bool isPointInPolygon(LatLng point, List<LatLng> polygon) {
+    return _isPointInPolygon(point, polygon);
+  }
+
+  /// Public method to show simple restricted zone notification
+  Future<void> showEmergencyZoneAlert(RestrictedZone zone, double distance, {required bool isInside}) async {
+    await _showSimpleRestrictedZoneNotification(zone, distance, isInside: isInside);
+  }
+
+  /// Show simple restricted zone notification (similar to SOS nearby alerts)
+  Future<void> _showSimpleRestrictedZoneNotification(RestrictedZone zone, double distance, {required bool isInside}) async {
+    try {
+      String title;
+      String body;
+      
+      if (isInside) {
+        title = '🚨 DANGER - Restricted Zone';
+        body = 'You are inside "${zone.name}". Please leave immediately!';
+      } else if (distance <= 100) {
+        title = '⚠️ CRITICAL - Restricted Zone Nearby';
+        body = 'DANGER: ${distance.toInt()}m from "${zone.name}". Do not proceed!';
+      } else {
+        title = '⚠️ WARNING - Restricted Zone Nearby';
+        body = 'WARNING: ${distance.toInt()}m from "${zone.name}". Exercise caution.';
+      }
+
+      // Simple Android notification details (no custom sounds or complex settings)
+      const androidDetails = AndroidNotificationDetails(
+        'restricted_zone_alerts',
+        'Restricted Zone Alerts',
+        channelDescription: 'Alerts when approaching or entering restricted zones',
+        importance: Importance.high,
+        priority: Priority.high,
+        playSound: true,
+        enableVibration: true,
+        showWhen: true,
+        autoCancel: true,
+        category: AndroidNotificationCategory.alarm,
+        icon: '@mipmap/ic_launcher',
+      );
+
+      // Simple iOS notification details
+      const iosDetails = DarwinNotificationDetails(
+        presentAlert: true,
+        presentBadge: true,
+        presentSound: true,
+        interruptionLevel: InterruptionLevel.timeSensitive,
+      );
+
+      const details = NotificationDetails(
+        android: androidDetails,
+        iOS: iosDetails,
+      );
+
+      // Show simple notification
+      await _notificationsPlugin.show(
+        zone.id.hashCode, // Use zone ID as notification ID
+        title,
+        body,
+        details,
+        payload: 'restricted_zone:${zone.id}',
+      );
+
+      AppLogger.info('📲 Simple restricted zone notification sent: $title');
+      
+    } catch (e) {
+      AppLogger.error('Failed to show restricted zone notification: $e');
+    }
+  }
+
   /// Initialize the geofencing service
   Future<void> initialize() async {
     await _initializeNotifications();
     await _loadRestrictedZones();
   }
 
-  /// Initialize notification system
+  /// Initialize simple notification system
   Future<void> _initializeNotifications() async {
-    // Create high-priority Android notification channel for emergency alerts
+    // Create simple Android notification channel (no custom sounds to avoid errors)
     const AndroidNotificationChannel channel = AndroidNotificationChannel(
-      'geofence_emergency_alerts',
-      'Emergency Zone Alerts',
-      description: 'High-priority alerts when entering or approaching restricted/dangerous zones',
-      importance: Importance.max,
+      'restricted_zone_alerts',
+      'Restricted Zone Alerts',
+      description: 'Alerts when approaching or entering restricted zones',
+      importance: Importance.high,
       playSound: true,
       enableVibration: true,
-      enableLights: true,
-      ledColor: Color(0xFFFF0000),
       showBadge: true,
     );
 
@@ -227,8 +295,8 @@ class GeofencingService {
     // Trigger EMERGENCY haptic feedback
     await _triggerHapticFeedback(zone.type);
     
-    // Show HIGH-PRIORITY notification
-    await _showEmergencyZoneAlert(zone, distance, isInside: true);
+    // Show simple notification
+    await _showSimpleRestrictedZoneNotification(zone, distance, isInside: true);
   }
 
   /// Handle critical proximity (within 100m)
@@ -248,8 +316,8 @@ class GeofencingService {
       AppLogger.warning('Vibration not supported: $e');
     }
     
-    // Show critical proximity alert
-    await _showProximityAlert(zone, distance, isCritical: true);
+    // Show simple critical proximity notification
+    await _showSimpleRestrictedZoneNotification(zone, distance, isInside: false);
   }
 
   /// Handle nearby proximity (within 500m)
@@ -269,8 +337,8 @@ class GeofencingService {
       AppLogger.warning('Vibration not supported: $e');
     }
     
-    // Show nearby proximity alert
-    await _showProximityAlert(zone, distance, isCritical: false);
+    // Show simple nearby proximity notification
+    await _showSimpleRestrictedZoneNotification(zone, distance, isInside: false);
   }
 
   /// Handle zone exit event  
@@ -375,115 +443,7 @@ class GeofencingService {
     }
   }
 
-  /// Show HIGH-PRIORITY emergency notification for zone entry
-  Future<void> _showEmergencyZoneAlert(RestrictedZone zone, double distance, {required bool isInside}) async {
-    final title = '🚨 EMERGENCY ALERT - ${zone.name}';
-    final body = isInside
-        ? 'You have ENTERED a restricted zone! Please leave immediately for your safety.'
-        : 'DANGER: You are ${distance.toInt()}m from a restricted zone. Do not proceed!';
 
-    final AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
-      'geofence_emergency_alerts',
-      'Emergency Zone Alerts',
-      channelDescription: 'High-priority alerts when entering or approaching restricted/dangerous zones',
-      importance: Importance.max,
-      priority: Priority.max,
-      playSound: true,
-      sound: const RawResourceAndroidNotificationSound('alert_sound'),
-      enableVibration: true,
-      vibrationPattern: Int64List.fromList([0, 500, 200, 500, 200, 500]),
-      enableLights: true,
-      color: const Color(0xFFFF0000),
-      ledColor: const Color(0xFFFF0000),
-      ledOnMs: 1000,
-      ledOffMs: 500,
-      showWhen: true,
-      autoCancel: false, // Don't auto-dismiss
-      ongoing: true, // Keep notification visible
-      category: AndroidNotificationCategory.alarm,
-      fullScreenIntent: true, // Show full screen
-      styleInformation: BigTextStyleInformation(
-        body,
-        contentTitle: title,
-        summaryText: 'URGENT: Tourist Safety Alert',
-      ),
-    );
-
-    const iosDetails = DarwinNotificationDetails(
-      presentAlert: true,
-      presentBadge: true,
-      presentSound: true,
-      interruptionLevel: InterruptionLevel.critical,
-    );
-
-    final notificationDetails = NotificationDetails(
-      android: androidDetails,
-      iOS: iosDetails,
-    );
-
-    await _notificationsPlugin.show(
-      DateTime.now().millisecondsSinceEpoch ~/ 1000,
-      title,
-      body,
-      notificationDetails,
-    );
-  }
-
-  /// Show proximity alert notification
-  Future<void> _showProximityAlert(RestrictedZone zone, double distance, {required bool isCritical}) async {
-    final title = isCritical
-        ? '🚨 CRITICAL WARNING - Approaching ${zone.name}'
-        : '⚠️ WARNING - Near ${zone.name}';
-    final body = isCritical
-        ? 'You are only ${distance.toInt()}m from a restricted zone! Turn back immediately!'
-        : 'You are ${distance.toInt()}m from a restricted area. Exercise extreme caution and avoid entering.';
-
-    final AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
-      'geofence_emergency_alerts',
-      'Emergency Zone Alerts',
-      channelDescription: 'High-priority alerts when entering or approaching restricted/dangerous zones',
-      importance: isCritical ? Importance.max : Importance.high,
-      priority: isCritical ? Priority.max : Priority.high,
-      playSound: true,
-      enableVibration: true,
-      vibrationPattern: isCritical
-          ? Int64List.fromList([0, 500, 200, 500])
-          : Int64List.fromList([0, 200, 100, 200]),
-      enableLights: true,
-      color: isCritical ? const Color(0xFFFF0000) : const Color(0xFFFF9800),
-      ledColor: isCritical ? const Color(0xFFFF0000) : const Color(0xFFFF9800),
-      ledOnMs: 1000,
-      ledOffMs: 500,
-      showWhen: true,
-      autoCancel: !isCritical,
-      category: isCritical ? AndroidNotificationCategory.alarm : AndroidNotificationCategory.reminder,
-      timeoutAfter: isCritical ? null : 30000,
-      styleInformation: BigTextStyleInformation(
-        body,
-        contentTitle: title,
-        summaryText: 'Tourist Safety Alert',
-      ),
-    );
-
-    final iosDetails = DarwinNotificationDetails(
-      presentAlert: true,
-      presentBadge: true,
-      presentSound: true,
-      interruptionLevel: isCritical ? InterruptionLevel.critical : InterruptionLevel.timeSensitive,
-    );
-
-    final notificationDetails = NotificationDetails(
-      android: androidDetails,
-      iOS: iosDetails,
-    );
-
-    await _notificationsPlugin.show(
-      DateTime.now().millisecondsSinceEpoch ~/ 1000 + (isCritical ? 1 : 0),
-      title,
-      body,
-      notificationDetails,
-    );
-  }
 
   /// Get current zones user is in
   List<String> get currentZoneIds => _currentZones.toList();
